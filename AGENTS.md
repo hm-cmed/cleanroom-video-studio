@@ -16,3 +16,5 @@
 4. 助成の表記（`config.js` の `grants`、画面下部、README）を消さない。
 5. 動画の挿絵は `render.js`（ブラウザ）と `local/render.py`（Python）の両方にある。片方に絵を足したら、もう片方にも足す。
 6. 利用者の API キーや個人情報を保存・送信しない（音声合成の API キーはメモリ上だけで使う）。
+7. 制作の手順は『著作権等に配慮した教育コンテンツ作成マニュアル』（`config.js` の `manual`）に沿わせる。マニュアルが改訂されたら、工程・チェック項目・記録様式（`app.js` の AUDIT_ITEMS、MANUAL_CHECKS、form1〜form3、finalApproval）を見直す。
+8. 画面や README に、法律事務所など第三者がツールを承認・保証しているように読める表現を入れない。

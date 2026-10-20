@@ -13,7 +13,7 @@
     { id: "cards", t: "事実カード", s: "根拠をそろえる" },
     { id: "series", t: "シリーズ構成", s: "回ごとにカードを割り当て" },
     { id: "script", t: "台本", s: "AIで書いて自動照合" },
-    { id: "review", t: "監修", s: "専門家が承認" },
+    { id: "review", t: "監修・監査", s: "正確さと類似性を確認" },
     { id: "video", t: "動画", s: "音声と映像を作る" },
     { id: "publish", t: "公開", s: "説明文と最終確認" },
     { id: "ai", t: "AIに頼む", s: "コード生成AIの案内", sep: true }
@@ -21,15 +21,32 @@
 
   function fresh() {
     return {
-      v: 1, step: "intro",
+      v: 2, step: "intro",
       project: {
         seriesTitle: "", org: "", supervisor: "", domain: "", prefix: "", topics: "", audience: "public",
         minSec: 30, maxSec: 60, banned: DEFAULT_BANNED.slice(), aiNotice: "原稿はAIが作成し、監修者が確認しました",
-        credit: true, os: "Windows", email: "", sourcesHint: "", cardTarget: 20, disclaimer: "個別の医療相談にはお答えできません。症状が続くときは医療機関を受診してください。"
+        credit: true, os: "Windows", email: "", sourcesHint: "", cardTarget: 20, disclaimer: "個別の医療相談にはお答えできません。症状が続くときは医療機関を受診してください。",
+        // 段階0 企画登録
+        mgmtNo: "", edition: "1.0", owner: "", coauthors: "", scope: "", lang: "日本語", translation: "なし", period: "", updater: "",
+        risks: { patient: false, others: false, photo: false, video: false, exam: false },
+        // 段階1 学習目標
+        objLevel: "", objAction: "", objScene: "", objEval: "", objOut: ""
       },
       cards: [], episodes: [], custom: {}, tts: { mode: "none", voice: "ja-JP-Neural2-B", rate: 1.0 },
+      aiLog: [],
+      publish: { license: "ccby", pubDate: "", checks: {}, legalReview: "", incident: false },
       ui: { scriptTab: {}, aiTool: "claude", aiTask: "batch", chatTool: "claude" }
     };
+  }
+  const SCOPES = [["", "（選ぶ）"], ["campus", "学内限定"], ["students", "受講者限定"], ["partners", "共同研究者・複数機関"], ["public", "一般公開（SNS・ウェブ）"], ["sale", "販売・有償研修"]];
+  const RISK_ITEMS = [["patient", "患者情報（症例・画像など）"], ["others", "他者の教材・出版物"], ["photo", "写真・イラスト（自作以外）"], ["video", "動画・音楽（自作以外）"], ["exam", "試験問題"]];
+  /* マニュアル 7.1 のリスク分類 */
+  function riskLevel() {
+    const p = S.project, r = p.risks || {};
+    if (!p.owner || !p.scope) return { lv: "停止", why: "責任者か公開範囲が決まっていません（段階0の停止条件）" };
+    if (["public", "sale"].includes(p.scope) || r.patient || r.exam || (p.translation && p.translation !== "なし")) return { lv: "高", why: "一般公開・販売、患者情報、試験問題、翻訳・国外公開のいずれかがあるため、法務・知財担当または専門家の確認が必要です" };
+    if (p.scope === "partners" || r.others || r.photo || r.video) return { lv: "中", why: "複数機関での利用か第三者の素材があるため、権利担当または別の担当者による監査が必要です" };
+    return { lv: "低", why: "制作者のセルフチェックと責任者の確認で進められます" };
   }
   let S = load() || fresh();
   const audioStore = {}; // 回の id → 場面ごとの AudioBuffer（保存しない）
@@ -85,15 +102,16 @@
     if (ids && ids.filter((x) => x === c.id).length > 1) e.push("ID の重複");
     if (!a.plain_statement_ja || a.plain_statement_ja.length < 10) e.push("主張文がない");
     if (!p.source) e.push("出典がない");
-    if (p.legal_basis === "E") e.push("legal_basis E（教育例外）は使わない");
+    if (p.legal_basis === "E") e.push("利用根拠 E（教育目的の例外）は一般公開の根拠にならない");
     if (!["OPEN", "RESTRICTED", "GOV_JP", "GOV_US", "UNKNOWN"].includes(p.source_class)) e.push("source_class の値");
     if (/\[\d+\]/.test(JSON.stringify(c))) e.push("脚注番号 [n] が残っている");
     if (/要確認/.test(a.plain_statement_ja || "")) w.push("主張文に「要確認」");
     if (pub.status === "verified_expert" && !pub.verifier) e.push("verified_expert なのに verifier が空");
     if (!a.common_misconception) w.push("よくある誤解が空（問いかけの場面に使えない）");
-    if (/二次資料/.test(String(c.uncertainty || ""))) w.push("二次資料経由の数値");
+    if (/二次資料/.test(String(c.uncertainty || ""))) w.push("二次資料経由の数値（一次資料で確認）");
     if (p.source_class === "UNKNOWN") w.push("ライセンス未確認");
     if (pub.status !== "verified_sources" && pub.status !== "verified_expert") w.push("文献照合前（draft）");
+    if (!(c.verification && c.verification.by && c.verification.date)) w.push("確認者・確認日が未記入（様式1）");
     return { e, w };
   }
 
@@ -157,53 +175,85 @@
   /* ---------- 画面 ---------- */
   function stepDone(id) {
     if (id === "intro") return S.ui.seenIntro;
-    if (id === "plan") return !!(S.project.seriesTitle && S.project.org && S.project.domain);
+    if (id === "plan") return !!(S.project.seriesTitle && S.project.org && S.project.domain && S.project.owner && S.project.scope && S.project.objAction);
     if (id === "cards") return S.cards.length > 0;
     if (id === "series") return S.episodes.length > 0 && S.episodes.every((e) => e.cards.length);
     if (id === "script") return S.episodes.length > 0 && S.episodes.every((e) => e.script && !hardFail(runChecks(e)).length);
     if (id === "review") return S.episodes.length > 0 && S.episodes.every(approved);
     return false;
   }
-  function approved(ep) { return !!(ep.approval && ep.approval.approved && ep.script && ep.approval.hash === hash(ep.script)); }
+  const AUDIT_ITEMS = [
+    ["text", "字幕・読み上げに、元の文章の語順・文の構造・比喩・例示が残っていない"],
+    ["structure", "回の構成・見出し・説明の順序が、元の教科書やガイドラインの章立てに沿っていない"],
+    ["visual", "挿絵が既存の図の項目・配置・矢印・配色を写していない"],
+    ["case", "症例や問いかけが既存の症例・問題を写しておらず、実在の患者を思わせない"],
+    ["third", "第三者の素材（写真・図・音楽・ロゴ）を使っていない、または全件に利用根拠がある"],
+    ["rights", "肖像・ロゴ・商標・サービスの利用規約を確認した"]
+  ];
+  const AUDIT_RESULTS = [["", "（選ぶ）"], ["approve", "承認"], ["conditional", "条件付き承認"], ["return", "差し戻し"], ["legal", "法務確認へ回す"]];
+  function auditOk(ep) { const a = ep.audit || {}; return AUDIT_ITEMS.every(([k]) => a.checks && a.checks[k]) && ["approve", "conditional"].includes(a.result) && !!a.auditor; }
+  function approved(ep) { return !!(ep.approval && ep.approval.approved && ep.script && ep.approval.hash === hash(ep.script) && auditOk(ep)); }
+  function logAI(entry) { S.aiLog.push(Object.assign({ date: new Date().toISOString().slice(0, 16).replace("T", " ") }, entry)); }
 
   function renderNav() {
     $("#steps").innerHTML = STEPS.map((s, i) => (s.sep ? "<hr>" : "") +
       `<button type="button" data-go="${s.id}" ${S.step === s.id ? 'aria-current="step"' : ""} data-done="${stepDone(s.id) ? 1 : 0}">
         <span class="no">${s.id === "ai" ? "AI" : i}</span><span class="lbl">${esc(s.t)}<small>${esc(s.s)}</small></span></button>`).join("");
   }
+  function manualName() { const m = CFG.manual; return "『" + m.title + "』" + m.version + "（" + m.author + "）"; }
   function renderFooter() {
     const g = CFG.grants.map((x) => `<li><strong>${esc(x.funder)}</strong>${x.title ? "「" + esc(x.title) + "」" : ""}${x.number ? "（" + esc(x.number) + "）" : ""}</li>`).join("");
+    const m = CFG.manual;
     $("#footer").innerHTML = `<p>本ツールの開発は、次の助成を受けて行いました。</p><ul style="margin:0;padding-left:1.2em">${g}</ul>
+      <p>制作の手順は、${m.url ? `<a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(manualName())}</a>` : esc(manualName())}に沿っています。</p>
       <p>開発：${esc(CFG.developer)}　｜　プログラム：${esc(CFG.license.code)}、説明文と見本データ：${esc(CFG.license.content)}　｜　<a href="${esc(CFG.repository)}" target="_blank" rel="noopener">ソースコード</a>　｜　v${esc(CFG.version)}</p>
-      <p>本ツールは制作の手順を支援するもので、医学的内容の正確さを保証しません。公開する内容の最終判断は、各団体の監修者が行ってください。</p>`;
+      <p>本ツールは制作の手順を支援するもので、医学的内容の正確さや、権利侵害がないことを保証するものではなく、法律上の助言でもありません。公開する内容の最終判断は各団体の責任者・監修者が行い、高額・商用・大規模公開・権利関係が不明な案件・国外公開は、所属機関の法務・知財担当または弁護士に確認してください。</p>`;
   }
 
   const V = {};
   V.intro = () => `
   <section class="panel">
     <h2>医療の短い動画を、根拠をたどれる形で作る</h2>
-    <p class="lead">論文やガイドラインの文章をそのまま使わず、事実と数値だけを「事実カード」に書き出し、そのカードだけを根拠に台本を作る方法です（クリーンルーム方式）。台本のどの文がどのカードにもとづくかが残るので、監修と訂正がしやすく、著作権の問題も避けられます。</p>
+    <p class="lead">他の人の文章を言い換えるのではなく、論文やガイドラインから事実とデータだけを「事実カード」に取り出して確かめ、学習目標とそのカードだけを材料に、新しい表現として動画を作ります（クリーンルーム方式）。台本のどの文がどのカードにもとづくかが残るので、監修と訂正がしやすく、著作権にも配慮できます。</p>
     <div class="flow">
-      <div><b>1 企画</b>誰に何を伝えるか<br><span class="chip who">あなた</span></div>
-      <div><b>2 事実カード</b>出典を調べて命題にする<br><span class="chip info who">チャットAI＋あなた</span></div>
-      <div><b>3 シリーズ構成</b>回ごとにカードを割り当て<br><span class="chip who">自動＋あなた</span></div>
-      <div><b>4 台本</b>カードだけを根拠に書く<br><span class="chip info who">チャットAI</span></div>
+      <div><b>1 企画</b>責任者・公開範囲・学習目標<br><span class="chip who">あなた</span></div>
+      <div><b>2 事実カード</b>事実を取り出して確かめる<br><span class="chip info who">チャットAI＋あなた</span></div>
+      <div><b>3 シリーズ構成</b>学習目標から回を組む<br><span class="chip who">自動＋あなた</span></div>
+      <div><b>4 台本</b>カードと目標だけで書く<br><span class="chip info who">チャットAI</span></div>
       <div><b>照合</b>根拠・数字・禁止表現<br><span class="chip ok who">自動</span></div>
-      <div><b>5 監修</b>専門家が承認<br><span class="chip warn who">監修者</span></div>
+      <div><b>5 監修・監査</b>正確さと類似性を確認<br><span class="chip warn who">監修者・監査担当</span></div>
       <div><b>6 動画</b>音声の長さに合わせて描画<br><span class="chip ok who">自動</span></div>
-      <div><b>7 公開</b>説明文・AI表示・出典<br><span class="chip who">あなた</span></div>
+      <div><b>7 公開</b>表示・記録・最終確認<br><span class="chip who">責任者</span></div>
     </div>
+  </section>
+  <section class="panel">
+    <h3>マニュアルの10段階との対応</h3>
+    <p class="lead">このツールの工程は、${esc(manualName())}の標準作業手順（段階0〜9）に沿っています。既存の出版物を許諾を得て動画化する場合（許諾型）は対象外で、複数の資料から事実を取り出して新しく作る場合（独立創作型）を支援します。</p>
+    <div class="tablewrap"><table><thead><tr><th>段階</th><th>内容</th><th>このツールの画面</th></tr></thead><tbody>
+      <tr><td class="mono">0</td><td>企画登録（責任者・公開範囲・高リスク素材）</td><td>1 企画</td></tr>
+      <tr><td class="mono">1</td><td>学習目標を、元資料の章立てではなく学習者の行動から決める</td><td>1 企画、3 シリーズ構成</td></tr>
+      <tr><td class="mono">2</td><td>情報源の棚卸し（書誌・権利表示）</td><td>2 事実カード（出典の欄）</td></tr>
+      <tr><td class="mono">3</td><td>素材ごとの利用根拠（A〜G）</td><td>2 事実カード（利用根拠 B）、7 公開（素材・権利台帳）</td></tr>
+      <tr><td class="mono">4</td><td>事実・データの抽出（表現は写さない）</td><td>2 事実カード</td></tr>
+      <tr><td class="mono">5</td><td>一次資料・独立した資料での検証</td><td>2 事実カード（確認者・確認日）、AIに頼む（文献照合）</td></tr>
+      <tr><td class="mono">6</td><td>元資料を閉じて、事実カードと学習目標から新しく作る</td><td>4 台本、6 動画</td></tr>
+      <tr><td class="mono">7</td><td>第三者素材の権利処理</td><td>5 監修・監査、7 公開</td></tr>
+      <tr><td class="mono">8</td><td>類似性・権利の監査</td><td>5 監修・監査（様式4）</td></tr>
+      <tr><td class="mono">9</td><td>版の固定・公開・記録の保存</td><td>7 公開（版・記録一式の書き出し）</td></tr>
+    </tbody></table></div>
   </section>
   <section class="panel">
     <h3>守るルール</h3>
     <ol style="margin:0;padding-left:1.4em;max-width:72ch">
-      <li>論文やガイドラインの文章・表・図を写さない。事実と数値だけを自分の言葉で書く。</li>
-      <li>数値は一次資料で確かめたものだけ。二次資料から取ったものはそう書いておく。</li>
+      <li>論文やガイドラインの文章・表・図・章立てを写さない。事実と数値だけを取り出し、自分の言葉と自分の構成で作る。</li>
+      <li>数値は対象・分母・単位・時点と一緒に、一次資料で確かめる。孫引きは確認したことにならない。</li>
       <li>文献番号（DOI・PMID）やライセンスは、確かめられたものだけを書く。</li>
-      <li>台本の各場面には、根拠のカードIDを付ける。カードにない数字は足さない。</li>
-      <li>公開は、監修者が承認した動画だけ。AIで作ったことと出典を必ず示す。</li>
-      <li>一般向けでは薬の名前を出さず、実在の人物の映像や声を使わない。</li>
+      <li>有料の論文・書籍・出版社の PDF の全文を、許諾なく AI に読み込ませない。患者情報・個人情報・試験問題を AI に入力しない。</li>
+      <li>台本の各場面には根拠のカードIDを付け、カードにない数字は足さない。AI を使った記録を残す。</li>
+      <li>公開は、監修と類似性の監査を経て承認された動画だけ。AIで作ったこと、出典、版を示す。</li>
+      <li>一般向けでは薬の名前を出さず、実在の人物の映像や声、ロゴを使わない。</li>
     </ol>
+    <div class="note warn"><b>判断に迷ったとき</b><br>「教育目的だからよい」「複数のサイトに載っているからよい」「AI に書き換えさせたから別物」とは考えず、使わない、許諾を得る、または法務・知財担当に相談する、のどれかにしてください。</div>
   </section>
   <section class="panel quiet">
     <h3>まず見本で試す</h3>
@@ -211,6 +261,18 @@
     <div class="row"><button class="b primary" data-act="load-sample" type="button">見本を読み込む</button>
     <button class="b" data-go="plan" type="button">自分の企画から始める</button></div>
     <p class="muted" style="font-size:.85rem">作業の内容はこのブラウザに自動で保存されます。別のパソコンで続けるときは、右上の「作業を保存（ファイル）」を使ってください。</p>
+  </section>
+  <section class="panel quiet">
+    <h3>参考資料（公式資料）</h3>
+    <ul style="margin:0;padding-left:1.2em;font-size:.9rem">
+      <li><a href="https://laws.e-gov.go.jp/law/345AC0000000048" target="_blank" rel="noopener">e-Gov法令検索「著作権法」</a></li>
+      <li><a href="https://www.bunka.go.jp/seisaku/chosakuken/seidokaisetsu/pdf/94383901_01.pdf" target="_blank" rel="noopener">文化庁「著作権テキスト」</a></li>
+      <li><a href="https://sartras.or.jp/seido/" target="_blank" rel="noopener">SARTRAS「授業目的公衆送信補償金制度とは」</a></li>
+      <li><a href="https://creativecommons.org/licenses/by/4.0/deed.ja" target="_blank" rel="noopener">Creative Commons「表示 4.0 国際（CC BY 4.0）」</a></li>
+      <li><a href="https://www.bunka.go.jp/seisaku/chosakuken/pdf/94097701_01.pdf" target="_blank" rel="noopener">文化庁「AIと著作権に関するチェックリスト＆ガイダンス」</a></li>
+      <li><a href="https://www.bunka.go.jp/seisaku/bunkashingikai/chosakuken/pdf/94037901_01.pdf" target="_blank" rel="noopener">文化審議会著作権分科会法制度小委員会「AIと著作権に関する考え方について」</a></li>
+      <li><a href="https://www.ppc.go.jp/news/careful_information/230602_AI_utilize_alert/" target="_blank" rel="noopener">個人情報保護委員会「生成AIサービスの利用に関する注意喚起等について」</a></li>
+    </ul>
   </section>`;
 
   const fld = (path, label, help, type, extra) => {
@@ -222,16 +284,53 @@
   function get(path) { return path.split(".").reduce((o, k) => (o == null ? o : o[k]), S); }
   function set(path, v) { const ks = path.split("."); const last = ks.pop(); const o = ks.reduce((o, k) => o[k], S); o[last] = v; }
 
-  V.plan = () => `
+  V.plan = () => {
+    const rk = riskLevel(); const rc = { "停止": "ng", "高": "warn", "中": "info", "低": "ok" }[rk.lv];
+    return `
   <section class="panel">
     <h2>企画</h2>
-    <p class="lead">シリーズの名前、発信する団体、視聴者を決めます。ここで決めた内容は、AI への依頼文や動画の表示に自動で入ります。</p>
+    <p class="lead">制作を始める前に、責任者・公開範囲・学習目標を決めます（マニュアルの段階0・1）。ここで決めた内容は、AI への依頼文、動画の表示、記録の書類に自動で入ります。</p>
+    <div class="note ${rc === "ng" ? "ng" : rc === "warn" ? "warn" : ""}"><b>リスク区分：<span class="chip ${rc}">${esc(rk.lv)}</span></b>　${esc(rk.why)}</div>
+  </section>
+  <section class="panel">
+    <h3>企画登録（段階0）</h3>
     <div class="grid2">
-      ${fld("project.seriesTitle", "シリーズの名前", "例：おなかの不調、それって気のせい？")}
+      ${fld("project.seriesTitle", "シリーズの名前（教材名）", "例：おなかの不調、それって気のせい？")}
+      ${fld("project.mgmtNo", "教材管理番号", "団体で決めた番号。記録の書類すべてに入ります")}
+      ${fld("project.edition", "版", "例：1.0。公開後に直したら上げます")}
+      ${fld("project.owner", "責任者（氏名・所属）", "必須。決まらないと先へ進めません")}
+      ${fld("project.coauthors", "共同制作者", "")}
       ${fld("project.org", "発信する団体名", "動画の左上に出ます")}
-      ${fld("project.domain", "領域・病名", "例：過敏性腸症候群（IBS）。動画の病名ラベルにも使います")}
-      ${fld("project.supervisor", "監修者（氏名・所属）", "説明文と承認記録に入ります")}
+      ${sel("project.scope", "公開範囲", SCOPES, "必須。一般公開・販売は確認が厳しくなります")}
+      ${fld("project.period", "公開予定期間", "例：2027年3月まで")}
+      ${fld("project.lang", "使用言語", "")}
+      ${fld("project.translation", "翻訳・国外公開の予定", "なければ「なし」")}
+      ${fld("project.updater", "更新責任者", "内容が古くなっていないかを見直す人")}
+      ${fld("project.supervisor", "監修者（氏名・所属）", "医学的内容を確認する人。説明文と承認記録に入ります")}
+    </div>
+    <div class="f" style="font-weight:700">高リスク素材の有無<span class="h" style="font-weight:400;color:var(--muted);font-size:.8rem">使う予定があるものに印をつけてください</span>
+      <div class="row">${RISK_ITEMS.map(([k, t]) => `<label style="display:flex;gap:6px;align-items:center;font-weight:400"><input type="checkbox" id="project.risks.${k}" data-bind="project.risks.${k}" ${S.project.risks && S.project.risks[k] ? "checked" : ""}> ${esc(t)}</label>`).join("")}</div></div>
+    ${S.project.risks && S.project.risks.patient ? '<p class="note ng">患者情報は AI に入力しないでください。症例を使う場合は、同意など適法に使える根拠を確かめ、再識別されないよう複数症例を合成した架空症例にしてください。</p>' : ""}
+    ${S.project.risks && S.project.risks.others ? '<p class="note warn">他者の教材・出版物を主な素材にして作り直す企画は、このツールの対象外です（許諾型）。制作を始める前に、権利者から許諾を得る方針を決めてください。</p>' : ""}
+  </section>
+  <section class="panel">
+    <h3>学習目標（段階1）</h3>
+    <p class="lead">元の教科書やガイドラインを開く前に、見た人が何をできるようになるかを決めます。「第1章を要約する」ではなく、「腹痛のある人が、受診を急ぐべきサインに気づける」のように、行動で書きます。</p>
+    <div class="grid2">
       ${sel("project.audience", "視聴者", [["public", "一般の人（患者・家族）"], ["student", "医療系の学生"], ["pro", "医療者"]])}
+      ${fld("project.objLevel", "視聴者のレベルと前提知識", "例：医学の知識はない。病名は聞いたことがある")}
+    </div>
+    ${fld("project.objAction", "見終わったあとにできること", "必須。1行に1つ", "textarea", 'style="min-height:70px"')}
+    <div class="grid2">
+      ${fld("project.objScene", "扱う場面", "例：受診を迷っているとき")}
+      ${fld("project.objEval", "伝わったかの確かめ方", "例：視聴後の1問クイズ、コメントの内容")}
+    </div>
+    ${fld("project.objOut", "扱わない範囲", "例：薬の選び方、個別の治療相談", "textarea", 'style="min-height:60px"')}
+  </section>
+  <section class="panel">
+    <h3>動画の設定</h3>
+    <div class="grid2">
+      ${fld("project.domain", "領域・病名", "例：過敏性腸症候群（IBS）。動画の病名ラベルにも使います")}
       ${fld("project.prefix", "事実カードの ID の頭文字", "英大文字2〜4字。例：IBS、NG", "text", 'maxlength="4"')}
       ${fld("project.minSec", "1本の長さ（最短・秒）", "", "number", 'min="10" max="180"')}
       ${fld("project.maxSec", "1本の長さ（最長・秒）", "", "number", 'min="10" max="180"')}
@@ -247,41 +346,51 @@
     </div>
     <div class="row"><button class="b primary" data-go="cards" type="button">事実カードへ進む</button></div>
   </section>`;
+  };
+
+  const aiServiceField = (id) => `<label class="f">使った AI（サービス名・モデル名）<span class="h">AI 利用の記録（様式3）に残します。例：Claude（Claude Opus 5.5）、ChatGPT（GPT-5）</span><input type="text" id="${id}" data-bind="ui.aiService" value="${esc(S.ui.aiService || "")}"></label>`;
 
   V.cards = () => {
     const ids = S.cards.map((c) => c.id);
     const rows = S.cards.map((c) => {
-      const { e, w } = cardIssues(c, ids);
+      const { e, w } = cardIssues(c, ids); const v = c.verification || {};
       const st = e.length ? `<span class="chip ng">要修正 ${e.length}</span>` : w.length ? `<span class="chip warn">注意 ${w.length}</span>` : `<span class="chip ok">OK</span>`;
-      return `<tr><td class="mono">${esc(c.id)}</td><td>${st}</td><td style="min-width:260px">${esc(c.assertion && c.assertion.plain_statement_ja)}<div class="muted" style="font-size:.8rem">${esc([...e, ...w].join("／"))}</div></td><td>${esc(c.assertion && c.assertion.common_misconception)}</td><td><span class="chip">${esc(c.provenance && c.provenance.source_class)}</span><div class="muted" style="font-size:.8rem">${esc((c.provenance && c.provenance.source || "").slice(0, 60))}</div></td><td><button class="b small" data-act="del-card" data-id="${esc(c.id)}" type="button">削除</button></td></tr>`;
+      return `<tr><td class="mono">${esc(c.id)}</td><td>${st}</td><td style="min-width:260px">${esc(c.assertion && c.assertion.plain_statement_ja)}<div class="muted" style="font-size:.8rem">${esc([...e, ...w].join("／"))}</div></td><td>${esc(c.assertion && c.assertion.common_misconception)}</td><td style="min-width:160px"><span class="chip">${esc(c.provenance && c.provenance.source_class)}</span> <span class="chip">利用根拠 ${esc(c.provenance && c.provenance.legal_basis || "?")}</span><div class="muted" style="font-size:.8rem">${esc((c.provenance && c.provenance.source || "").slice(0, 60))}</div></td>
+        <td style="min-width:150px"><input type="text" id="vb-${esc(c.id)}" data-ver="${esc(c.id)}" data-k="by" value="${esc(v.by || "")}" placeholder="確認者" aria-label="${esc(c.id)} の確認者"><input type="date" id="vd-${esc(c.id)}" data-ver="${esc(c.id)}" data-k="date" value="${esc(v.date || "")}" aria-label="${esc(c.id)} の確認日" style="margin-top:4px"></td>
+        <td><button class="b small" data-act="del-card" data-id="${esc(c.id)}" type="button">削除</button></td></tr>`;
     }).join("");
     const errN = S.cards.filter((c) => cardIssues(c, ids).e.length).length;
+    const tab = S.ui.cardsTab || "ai";
     return `
   <section class="panel">
     <h2>事実カード</h2>
-    <p class="lead">動画の根拠になる「事実の札」です。1枚に1つの命題と、その出典を書きます。既にカードがあれば読み込み、なければチャットAI に調査を頼みます。</p>
+    <p class="lead">動画の根拠になる「事実の札」です（マニュアルの段階2〜5、様式1）。1枚に1つの命題を、元の文章を写さず中立的な短い文で書き、出典・利用根拠・確認者を記録します。</p>
+    <div class="note warn"><b>AI に資料を読ませるときの注意</b><br>有料の論文・書籍・出版社の PDF などの全文を、許諾なく AI に入力して要約させることは、著作権法第30条の4の対象にならず、許諾などの根拠が必要になります。オープンライセンス（CC BY など）の資料や公的資料を優先し、判断できないものは入力しないでください。患者情報・個人情報・試験問題も入力しません。</div>
     <div class="tabs" role="tablist">
-      ${[["ai", "AI に調査を頼む"], ["paste", "貼り付け・ファイル"], ["sample", "見本"]].map(([k, t]) => `<button role="tab" type="button" data-act="cards-tab" data-tab="${k}" aria-selected="${(S.ui.cardsTab || "ai") === k}">${t}</button>`).join("")}
+      ${[["ai", "AI に調査を頼む"], ["paste", "貼り付け・ファイル"], ["sample", "見本"]].map(([k, t]) => `<button role="tab" type="button" data-act="cards-tab" data-tab="${k}" aria-selected="${tab === k}">${t}</button>`).join("")}
     </div>
-    ${(S.ui.cardsTab || "ai") === "ai" ? `
+    ${tab === "ai" ? `
       <ol style="margin:0;padding-left:1.4em;max-width:72ch">
         <li>下の依頼文をコピーし、ウェブ検索ができるチャットAI（Claude、ChatGPT、Gemini など）に貼り付けて送ります。</li>
         <li>返ってきた答えを全部コピーし、「貼り付け・ファイル」のタブに貼ります。</li>
         <li>自動の点検で「要修正」が出たら、AI に直すよう頼むか、手で直します。</li>
+        <li>人が一次資料を開いて内容を確かめ、表の「確認者・確認日」を記入します。</li>
       </ol>
       ${promptBox(P.research(projectForPrompt()), "research")}
       <p class="note warn">チャットAI は、存在しない論文や数字を作ることがあります。カードは必ず人が出典で確かめ、公開前に「AIに頼む」→「文献番号とライセンスの照合」も行ってください。</p>` : ""}
-    ${(S.ui.cardsTab || "ai") === "paste" ? `
+    ${tab === "paste" ? `
+      ${aiServiceField("ai-service-cards")}
       <label class="f">AI の答え、または YAML／JSON のカード<span class="h">\`\`\`yaml … \`\`\` の囲みごと貼り付けて構いません</span><textarea id="cards-paste" class="mono tall" placeholder="- id: IBS-001&#10;  domain: IBS&#10;  ..."></textarea></label>
       <div class="row"><button class="b primary" data-act="cards-import" type="button">読み込む（同じIDは置き換え）</button>
       <label class="b" for="cards-file">ファイルから読み込む</label><input id="cards-file" type="file" accept=".yaml,.yml,.json,.md,.txt" hidden></div>` : ""}
-    ${(S.ui.cardsTab || "ai") === "sample" ? `<p>見本の事実カード6件（過敏性腸症候群と機能性ディスペプシア、Rome V）を加えます。</p><div class="row"><button class="b primary" data-act="load-sample" type="button">見本を読み込む</button></div>` : ""}
+    ${tab === "sample" ? `<p>見本の事実カード6件（過敏性腸症候群と機能性ディスペプシア、Rome V）を加えます。</p><div class="row"><button class="b primary" data-act="load-sample" type="button">見本を読み込む</button></div>` : ""}
   </section>
   <section class="panel">
     <div class="row" style="justify-content:space-between"><h3>読み込んだカード <span class="num muted">${S.cards.length}件</span></h3>
       <div class="row">${errN ? `<span class="chip ng">要修正 ${errN}件</span>` : S.cards.length ? '<span class="chip ok">形式の点検は合格</span>' : ""}
       <button class="b small" data-act="cards-export" type="button" ${S.cards.length ? "" : "disabled"}>cards.json を書き出す</button></div></div>
-    ${S.cards.length ? `<div class="tablewrap"><table><thead><tr><th>ID</th><th>点検</th><th>主張文</th><th>よくある誤解</th><th>出典</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+    ${S.cards.length ? `<div class="tablewrap"><table><thead><tr><th>ID</th><th>点検</th><th>主張文</th><th>よくある誤解</th><th>出典・利用根拠</th><th>確認者・確認日</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+      <p class="muted" style="font-size:.85rem">利用根拠 B は「著作権で保護されない事実・データを自分の文で書いたもの」です。事実カードは原則 B で作ります。E（教育目的の例外、著作権法第35条）は一般公開の根拠にならないため使いません。</p>`
       : `<p class="muted">まだカードがありません。上の方法のどれかで読み込んでください。</p>`}
     ${S.cards.length ? `<div class="row"><button class="b primary" data-go="series" type="button">シリーズ構成へ進む</button></div>` : ""}
   </section>`;
@@ -294,13 +403,17 @@
         <div class="hd"><div class="row" style="flex:1;min-width:0"><span class="chip">第${i + 1}回</span>
           <input type="text" id="ep-title-${ep.id}" data-ep="${ep.id}" data-epf="title" value="${esc(ep.title)}" style="flex:1;min-width:180px" aria-label="回の題"></div>
           <button class="b small" data-act="ep-del" data-id="${ep.id}" type="button">この回を削除</button></div>
+        <div class="grid2">
+          <label class="f">この回の学習目標<span class="h">見終わったあとにできること</span><input type="text" id="ep-obj-${ep.id}" data-ep="${ep.id}" data-epf="objective" value="${esc(ep.objective || "")}"></label>
+          <label class="f">自分で決めた構成<span class="h">例：誤解の問いかけ → 基準の数字 → 受診の目安。AI はこの順に沿って書きます</span><input type="text" id="ep-plan-${ep.id}" data-ep="${ep.id}" data-epf="plan" value="${esc(ep.plan || "")}"></label>
+        </div>
         <div class="cardlist">${S.cards.map((c) => `<label class="cardpick"><input type="checkbox" data-act="ep-card" data-ep="${ep.id}" data-id="${esc(c.id)}" ${ep.cards.includes(c.id) ? "checked" : ""}>${esc(c.id)}</label>`).join("")}</div>
         <p class="muted" style="font-size:.85rem">${ep.cards.map((id) => cm[id] ? esc(id + "：" + (cm[id].assertion.common_misconception || cm[id].assertion.plain_statement_ja).slice(0, 40)) : "").join("<br>") || "カードを選んでください"}</p>
       </div>`).join("");
     return `
   <section class="panel">
     <h2>シリーズ構成</h2>
-    <p class="lead">1本の動画で扱うカードは2〜3枚が目安です。自動で小見出しごとに分けたあと、題やカードを手で直せます。</p>
+    <p class="lead">1本の動画で扱うカードは2〜3枚が目安です。回の分け方と説明の順序は、元の教科書やガイドラインの章立てに沿わせず、学習目標と視聴者の疑問から自分で決めます（マニュアルの原則2）。自動で小見出しごとに分けたあと、題・目標・構成・カードを手で直してください。</p>
     <div class="row"><button class="b" data-act="auto-plan" type="button" ${S.cards.length ? "" : "disabled"}>カードから自動で構成する</button>
     <button class="b" data-act="ep-add" type="button">回を1つ追加</button></div>
     ${S.episodes.length ? eps : '<p class="muted">まだ回がありません。</p>'}
@@ -324,20 +437,28 @@
       <p class="muted" style="font-size:.8rem">△はカードの文献照合（draft → verified_sources）が済むと消えます。公開前に「AIに頼む」→「文献番号とライセンスの照合」を行ってください。</p></details>`;
   }
 
+  function editedScenes(ep) {
+    if (!ep.aiOriginal || !ep.script) return null;
+    const o = JSON.parse(ep.aiOriginal).scenes || [];
+    return ep.script.scenes.filter((s, i) => !o[i] || ["caption", "narration", "speech"].some((k) => (s[k] || "") !== (o[i][k] || ""))).length;
+  }
   V.script = () => {
     if (!S.episodes.length) return `<section class="panel"><h2>台本</h2><p>先に「シリーズ構成」で回を作ってください。</p><div class="row"><button class="b primary" data-go="series" type="button">シリーズ構成へ</button></div></section>`;
     const cm = cardMap();
     return `<section class="panel"><h2>台本</h2>
-      <p class="lead">回ごとに依頼文をチャットAI に送り、返ってきた JSON を貼り付けます。貼るとすぐに、根拠カード・数字・禁止表現・字幕の速さを自動で照合します。AI を使わない下書きも作れます。</p></section>` +
+      <p class="lead">元の資料を閉じた状態で、事実カードと学習目標だけを材料に新しく書きます（マニュアルの段階6）。回ごとに依頼文をチャットAI に送り、返ってきた JSON を貼り付けると、根拠カード・数字・禁止表現・字幕の速さを自動で照合します。</p>
+      <p class="note">AI の出力はそのまま使わず、人が言い回し・構成・例を選び直して仕上げてください。どの場面を人が直したかは自動で記録されます（様式3）。</p></section>` +
       S.episodes.map((ep, i) => {
         const cards = ep.cards.map((id) => cm[id]).filter(Boolean);
         const tab = S.ui.scriptTab[ep.id] || (ep.script ? "edit" : "ai");
+        const ed = editedScenes(ep);
         return `<section class="panel">
           <div class="row" style="justify-content:space-between"><h3>第${i + 1}回　${esc(ep.title)}</h3>
-            <div class="row">${approved(ep) ? '<span class="chip ok">承認済み</span>' : ep.approval && ep.approval.approved ? '<span class="chip warn">承認後に変更あり</span>' : ""}</div></div>
+            <div class="row">${ed !== null ? `<span class="chip info">人が直した場面 ${ed}/${ep.script.scenes.length}</span>` : ""}${approved(ep) ? '<span class="chip ok">承認済み</span>' : ep.approval && ep.approval.approved ? '<span class="chip warn">承認後に変更あり</span>' : ""}</div></div>
+          ${!ep.objective && !S.project.objAction ? '<p class="note warn">学習目標が未設定です。「企画」か「シリーズ構成」で決めてから依頼文を作ってください。</p>' : ""}
           <div class="tabs" role="tablist">${[["ai", "AI に頼む"], ["paste", "貼り付け"], ["edit", "確認・修正"], ["check", "別のAIで意味を照合"]].map(([k, t]) => `<button role="tab" type="button" data-act="script-tab" data-ep="${ep.id}" data-tab="${k}" aria-selected="${tab === k}">${t}</button>`).join("")}</div>
           ${tab === "ai" ? promptBox(P.script(S.project, ep, cards, Object.keys(S.custom)), "script-" + ep.id) + `<div class="row"><button class="b small" data-act="draft" data-ep="${ep.id}" type="button">AI を使わずに下書きを作る</button><span class="muted" style="font-size:.8rem">カードの文をそのまま並べた下書きです。字幕が長すぎるので、手で短くする必要があります。</span></div>` : ""}
-          ${tab === "paste" ? `<label class="f">AI が返した JSON<textarea id="script-paste-${ep.id}" class="mono tall"></textarea></label><div class="row"><button class="b primary" data-act="script-import" data-ep="${ep.id}" type="button">読み込んで照合する</button></div>` : ""}
+          ${tab === "paste" ? `${aiServiceField("ai-service-" + ep.id)}<label class="f">AI が返した JSON<textarea id="script-paste-${ep.id}" class="mono tall"></textarea></label><div class="row"><button class="b primary" data-act="script-import" data-ep="${ep.id}" type="button">読み込んで照合する</button></div>` : ""}
           ${tab === "edit" ? (ep.script ? editScript(ep) : '<p class="muted">まだ台本がありません。</p>') : ""}
           ${tab === "check" ? (ep.script ? promptBox(P.semantic(ep, cards), "sem-" + ep.id) + `<p class="muted" style="font-size:.85rem">台本を書いたものとは別のチャットAI に送ると、意味の取り違えを見つけやすくなります。結果は監修者への申し送りとして残せます。</p>${fld2("sem-" + ep.id, "照合の結果（メモ）", ep.semantic)}` : '<p class="muted">台本ができてから使えます。</p>') : ""}
           ${ep.script ? checksHtml(ep) : ""}
@@ -368,26 +489,39 @@
   function sf(ep, k, label) { return `<label class="f">${label}<input type="text" id="sf-${ep.id}-${k}" data-scf="${ep.id}" data-k="${k}" value="${esc(ep.script[k] || "")}"></label>`; }
 
   V.review = () => {
-    if (!S.episodes.some((e) => e.script)) return `<section class="panel"><h2>監修</h2><p>台本ができた回から監修できます。</p></section>`;
+    if (!S.episodes.some((e) => e.script)) return `<section class="panel"><h2>監修・監査</h2><p>台本ができた回から監修できます。</p></section>`;
     const cm = cardMap();
-    return `<section class="panel"><h2>監修</h2><p class="lead">監修者は、場面ごとの字幕と根拠カードを見比べて承認します。承認したあとに台本を変えると、承認は自動で外れます。監修用の資料（Markdown）を書き出して、メールなどで渡すこともできます。</p></section>` +
+    return `<section class="panel"><h2>監修・監査</h2><p class="lead">回ごとに2つの確認をします。<b>監修</b>は、監修者が字幕と根拠カードを見比べて医学的に正しいかを確かめます。<b>監査</b>は、監査担当が元の資料と見比べて、表現・構成・図が似すぎていないか、権利の処理が漏れていないかを確かめます（マニュアルの段階8、様式4）。同じ人が兼ねても構いません。両方がそろうと承認され、承認後に台本を変えると承認は自動で外れます。</p></section>` +
       S.episodes.filter((e) => e.script).map((ep) => {
-        const bad = hardFail(runChecks(ep)).length, ap = ep.approval || {};
+        const bad = hardFail(runChecks(ep)).length, ap = ep.approval || {}, au = ep.audit || {}, ch = au.checks || {};
+        const auOk = auditOk(ep);
         return `<section class="panel">
-          <div class="row" style="justify-content:space-between"><h3>${esc(ep.title)}</h3><div class="row">${bad ? `<span class="chip ng">照合 不合格 ${bad}件</span>` : '<span class="chip ok">照合 合格</span>'}${approved(ep) ? '<span class="chip ok">承認済み</span>' : '<span class="chip warn">未承認</span>'}</div></div>
+          <div class="row" style="justify-content:space-between"><h3>${esc(ep.title)}</h3><div class="row">${bad ? `<span class="chip ng">照合 不合格 ${bad}件</span>` : '<span class="chip ok">照合 合格</span>'}${auOk ? '<span class="chip ok">監査 済</span>' : '<span class="chip warn">監査 未</span>'}${approved(ep) ? '<span class="chip ok">承認済み</span>' : '<span class="chip warn">未承認</span>'}</div></div>
+          <h3 style="font-size:.95rem">監修：字幕と根拠</h3>
           <div class="tablewrap"><table><thead><tr><th>場面</th><th>字幕</th><th>根拠カードの内容</th></tr></thead><tbody>
           ${ep.script.scenes.map((s, i) => `<tr><td class="mono">${i + 1}</td><td style="min-width:200px">${esc(s.narration)}</td><td style="min-width:260px">${(s.cards || []).map((id) => cm[id] ? `<b class="mono">${esc(id)}</b> ${esc(cm[id].assertion.plain_statement_ja)}<div class="muted" style="font-size:.8rem">${esc(cm[id].provenance.source)}</div>` : `<span class="chip ng">${esc(id)} なし</span>`).join("<hr style='border:0;border-top:1px solid var(--line)'>") || '<span class="muted">（締めの言葉）</span>'}</td></tr>`).join("")}
           </tbody></table></div>
           ${ep.semantic ? `<div class="note"><b>別のAIによる照合メモ</b><br>${esc(ep.semantic)}</div>` : ""}
+          <h3 style="font-size:.95rem">監査：類似性と権利（様式4）</h3>
+          <p class="muted" style="font-size:.85rem">文字の一致率だけで判断せず、元の資料を知っている人が見て、その特徴が感じ取れないかを確かめます。事実やデータが同じことは問題ではありません。</p>
+          <div style="display:grid;gap:4px">${AUDIT_ITEMS.map(([k, t]) => `<label style="display:flex;gap:8px;align-items:flex-start"><input type="checkbox" id="au-${ep.id}-${k}" data-audit="${ep.id}" data-k="${k}" ${ch[k] ? "checked" : ""}> <span>${esc(t)}</span></label>`).join("")}</div>
+          <div class="grid3">
+            <label class="f">監査担当<input type="text" id="au-a-${ep.id}" data-audit="${ep.id}" data-k="auditor" value="${esc(au.auditor || "")}"></label>
+            <label class="f">監査日<input type="date" id="au-d-${ep.id}" data-audit="${ep.id}" data-k="date" value="${esc(au.date || today())}"></label>
+            <label class="f">監査結果<select id="au-r-${ep.id}" data-audit="${ep.id}" data-k="result">${AUDIT_RESULTS.map(([v, t]) => `<option value="${v}" ${au.result === v ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+          </div>
+          ${au.result === "return" ? '<p class="note warn">差し戻し：似ている箇所を削る、新しく作り直す、引用の要件を満たす形にする、許諾を得る、のどれかで直してから、もう一度監査してください。</p>' : ""}
+          ${au.result === "legal" ? '<p class="note ng">法務確認へ回す：所属機関の法務・知財担当か弁護士の確認を受けるまで、公開しないでください。</p>' : ""}
+          <h3 style="font-size:.95rem">承認</h3>
           <div class="grid3">
             <label class="f">監修者<input type="text" id="ap-r-${ep.id}" data-ap="${ep.id}" data-k="reviewer" value="${esc(ap.reviewer || S.project.supervisor || "")}"></label>
             <label class="f">承認日<input type="date" id="ap-d-${ep.id}" data-ap="${ep.id}" data-k="date" value="${esc(ap.date || today())}"></label>
             <label class="f">コメント<input type="text" id="ap-c-${ep.id}" data-ap="${ep.id}" data-k="comment" value="${esc(ap.comment || "")}"></label>
           </div>
           <div class="row">
-            ${approved(ep) ? `<button class="b warn" data-act="unapprove" data-ep="${ep.id}" type="button">承認を取り消す</button>` : `<button class="b primary" data-act="approve" data-ep="${ep.id}" type="button" ${bad ? "disabled" : ""}>承認する</button>`}
-            <button class="b" data-act="packet" data-ep="${ep.id}" type="button">監修用資料を書き出す</button>
-            ${bad ? '<span class="muted" style="font-size:.85rem">自動照合の不合格を直してから承認できます</span>' : ""}
+            ${approved(ep) ? `<button class="b warn" data-act="unapprove" data-ep="${ep.id}" type="button">承認を取り消す</button>` : `<button class="b primary" data-act="approve" data-ep="${ep.id}" type="button" ${bad || !auOk ? "disabled" : ""}>承認する</button>`}
+            <button class="b" data-act="packet" data-ep="${ep.id}" type="button">監修・監査用の資料を書き出す</button>
+            ${bad ? '<span class="muted" style="font-size:.85rem">自動照合の不合格を直してから承認できます</span>' : !auOk ? '<span class="muted" style="font-size:.85rem">監査の6項目、監査担当、結果（承認か条件付き承認）がそろうと承認できます</span>' : ""}
           </div></section>`;
       }).join("");
   };
@@ -415,6 +549,7 @@
         ${fld("tts.rate", "話す速さ", "1.0 が標準", "number", 'step="0.05" min="0.7" max="1.4"')}</div>
         <div class="row"><button class="b primary" data-act="tts-google" data-ep="${ep.id}" type="button">音声を作る</button></div>` : ""}
       ${S.tts.mode === "browser" ? `<p>ブラウザの読み上げで、台本の聞こえ方を確かめます。この音声は動画に録音できません。動画に入れるときは、ほかの方法を使ってください。</p><div class="row"><button class="b" data-act="speak" data-ep="${ep.id}" type="button">読み上げる</button><button class="b" data-act="speak-stop" type="button">止める</button></div>` : ""}
+      <p class="note">ナレーションにも権利があります。自分以外の人の声を録音して使うときは、その人の同意を得てください。音声合成サービスは、一般公開や商用での利用が利用規約で認められているかを確かめてください。音楽（BGM）はこのツールでは入れません。</p>
       <p class="muted" style="font-size:.85rem">${au ? "音声：" + au.filter(Boolean).length + "/" + ep.script.scenes.length + " 場面" : "音声：なし"}</p>
     </section>
     <section class="panel">
@@ -438,36 +573,82 @@
     const cm = cardMap(); const ids = [...new Set(ep.script.scenes.flatMap((s) => s.cards || []))];
     return [...new Set(ids.map((id) => cm[id] && cm[id].provenance.source).filter(Boolean))];
   }
+  const LICENSES = [["arr", "著作権表示のみ（All rights reserved）"], ["ccby", "CC BY 4.0（表示）"], ["ccbysa", "CC BY-SA 4.0（表示-継承）"], ["ccbync", "CC BY-NC 4.0（表示-非営利）"]];
+  function licenseText() {
+    const pj = S.project, y = (S.publish.pubDate || today()).slice(0, 4), who = pj.org || "（団体名）";
+    const name = { ccby: "Creative Commons 表示 4.0 国際（CC BY 4.0）", ccbysa: "Creative Commons 表示-継承 4.0 国際（CC BY-SA 4.0）", ccbync: "Creative Commons 表示-非営利 4.0 国際（CC BY-NC 4.0）" }[S.publish.license];
+    if (!name) return "© " + y + " " + who + ". All rights reserved. 本動画の無断複製、転載、改変、公衆送信および第三者への配布を禁じます。ただし、法令上認められる利用を除きます。";
+    return "© " + y + " " + who + "　特に表示がない限り、本動画のうち制作者が独自に作成した文章・構成・挿絵は、" + name + "で提供します。引用部分、第三者素材、ロゴ、写真および個別に利用条件を表示した素材は対象外です。";
+  }
   function description(ep, platform) {
     const pj = S.project, sc = ep.script, ap = ep.approval || {};
     const tags = platform === "x" ? "" : "\n\n#" + (pj.domain || "医療").replace(/[（）()\s]/g, "") + " #医療情報";
     const src = sourcesOf(ep);
     return [sc.description || sc.theme || ep.title, "", pj.disclaimer, "", "出典：", ...src.map((s) => "・" + s),
-      "", "監修：" + (ap.reviewer || pj.supervisor || "（監修者）") + (ap.date ? "（" + ap.date + " 承認）" : ""), pj.aiNotice + "。", "発信：" + (pj.org || "（団体名）")].join("\n") + tags;
+      "", "監修：" + (ap.reviewer || pj.supervisor || "（監修者）") + (ap.date ? "（" + ap.date + " 承認）" : ""), pj.aiNotice + "。",
+      "発信：" + (pj.org || "（団体名）") + "　版：" + (pj.edition || "1.0") + (S.publish.pubDate ? "（" + S.publish.pubDate + " 公開）" : ""),
+      platform === "x" ? "" : licenseText()].filter((x) => x !== "").join("\n") + tags;
+  }
+  const MANUAL_CHECKS = [
+    ["recheck", "公開の直前に、重要な事実・数値を一次資料で確かめ直した（版・発行年・アクセス日を確認）"],
+    ["ledger", "素材・権利台帳（様式2）を確認し、出典と権利の情報をたどれる"],
+    ["art35", "教育目的の例外（著作権法第35条）を、一般公開の根拠にしていない"],
+    ["persons", "患者情報・肖像・ロゴ・商標・サービスの利用規約を確認した"],
+    ["aiinput", "AI に入力した資料について、許諾・ライセンス・利用規約・所属機関の手順を確認した（患者情報・個人情報・試験問題は入力していない）"],
+    ["aistage", "AI への入力・生成の段階と、動画の公開・配布の段階を分けて、権利の根拠を確認した"],
+    ["cc", "CC ライセンスは、自分たちが権利を持つ部分にだけ付けた"],
+    ["incident", "権利侵害の指摘を受けたときの対応（所属内での共有、公開の停止、権利者への対応、原因の解明、再発防止）を決めた"]
+  ];
+  function publishItems() {
+    const eps = S.episodes.filter((e) => e.script), pj = S.project, rk = riskLevel(), ids = S.cards.map((x) => x.id);
+    const auto = [
+      ["責任者と公開範囲が決まっている（段階0）", !!(pj.owner && pj.scope)],
+      ["学習目標が決まっている（段階1）", !!pj.objAction],
+      ["事実カードの形式の点検に合格", S.cards.length && S.cards.every((c) => !cardIssues(c, ids).e.length)],
+      ["すべてのカードに確認者・確認日がある（段階5・様式1）", S.cards.length && S.cards.every((c) => c.verification && c.verification.by && c.verification.date)],
+      ["事実カードの文献照合が済んでいる（verified_sources 以上）", S.cards.length && S.cards.every((c) => ["verified_sources", "verified_expert"].includes((c.publication_info || {}).status))],
+      ["すべての回の台本が自動照合に合格", eps.length && eps.every((e) => !hardFail(runChecks(e)).length)],
+      ["すべての回が監修と監査を経て承認されている（段階8・様式4）", eps.length && eps.every(approved)],
+      ["AI を使った作業が記録されている（様式3）", S.aiLog.length > 0 || !eps.some((e) => e.aiOriginal)],
+      ["版・公開日・責任者が決まっている（段階9）", !!(pj.edition && S.publish.pubDate && pj.owner)],
+      ["AI で作ったことの表示がある", !!pj.aiNotice]
+    ];
+    const manual = MANUAL_CHECKS.map(([k, t]) => [t, !!S.publish.checks[k], k]);
+    if (rk.lv === "高") manual.push(["法務・知財担当または専門家の確認を受けた（リスク区分：高）", !!(S.publish.checks.legal && S.publish.legalReview), "legal"]);
+    if (pj.translation && pj.translation !== "なし") manual.push(["国外で公開する国・地域の法令と契約条件を確認した", !!S.publish.checks.abroad, "abroad"]);
+    return { auto, manual, rk };
   }
 
   V.publish = () => {
     const eps = S.episodes.filter((e) => e.script);
-    const items = [
-      ["事実カードの形式の点検に合格", S.cards.length && S.cards.every((c) => !cardIssues(c, S.cards.map((x) => x.id)).e.length)],
-      ["すべての回の台本が自動照合に合格", eps.length && eps.every((e) => !hardFail(runChecks(e)).length)],
-      ["すべての回を監修者が承認", eps.length && eps.every(approved)],
-      ["事実カードの文献照合が済んでいる（verified_sources 以上）", S.cards.length && S.cards.every((c) => ["verified_sources", "verified_expert"].includes((c.publication_info || {}).status))],
-      ["AI で作ったことの表示がある", !!S.project.aiNotice],
-      ["監修者の氏名・所属がある", !!S.project.supervisor]
-    ];
+    const { auto, manual, rk } = publishItems();
+    const allOk = auto.every((x) => x[1]) && manual.every((x) => x[1]) && rk.lv !== "停止";
     const plat = S.ui.plat || "youtube";
     return `<section class="panel"><h2>公開</h2>
-      <p class="lead">公開前の最終確認と、投稿の説明文づくりです。説明文には、出典・監修者・AI で作ったことを自動で入れます。投稿は、各サービスの画面から人が行ってください。</p>
-      <ul class="checks" style="list-style:none;padding:0">${items.map(([t, ok]) => `<li>${ok ? '<span class="chip ok">済</span>' : '<span class="chip warn">未</span>'}　${esc(t)}</li>`).join("")}</ul>
+      <p class="lead">公開前の最終確認（マニュアルの10．最終チェックリスト、7.2 公開承認の最低条件）と、投稿の説明文・権利表示・記録一式の書き出しです。投稿は、各サービスの画面から人が行ってください。</p>
+      <div class="note ${allOk ? "" : "warn"}"><b>${allOk ? "公開の条件がそろっています" : "まだ公開の条件がそろっていません"}</b>　リスク区分：<span class="chip ${{ "停止": "ng", "高": "warn", "中": "info", "低": "ok" }[rk.lv]}">${esc(rk.lv)}</span>　${esc(rk.why)}</div>
+      <div class="grid2">
+        <label class="f">公開日<input type="date" id="publish.pubDate" data-bind="publish.pubDate" value="${esc(S.publish.pubDate || "")}"></label>
+        <label class="f">版<input type="text" id="project.edition2" data-bind="project.edition" value="${esc(S.project.edition || "")}"></label>
+      </div>
+      <h3 style="font-size:.95rem">自動で確かめた項目</h3>
+      <ul class="checks" style="list-style:none;padding:0">${auto.map(([t, ok]) => `<li>${ok ? '<span class="chip ok">済</span>' : '<span class="chip warn">未</span>'}　${esc(t)}</li>`).join("")}</ul>
+      <h3 style="font-size:.95rem">責任者が確かめる項目</h3>
+      <div style="display:grid;gap:4px">${manual.map(([t, ok, k]) => `<label style="display:flex;gap:8px;align-items:flex-start"><input type="checkbox" id="pc-${k}" data-pcheck="${k}" ${ok || S.publish.checks[k] ? "checked" : ""}> <span>${esc(t)}</span></label>`).join("")}</div>
+      ${rk.lv === "高" ? `<label class="f">確認を受けた法務・知財担当または専門家（氏名・日付）<input type="text" id="publish.legalReview" data-bind="publish.legalReview" value="${esc(S.publish.legalReview || "")}"></label>` : ""}
+    </section>
+    <section class="panel"><h3>権利表示</h3>
+      <p class="lead">CC ライセンスは、自分たちが権利を持つ部分（独自に作った文章・構成・挿絵）にだけ付けられます。BY-NC を選ぶと有償の研修などに使えなくなり、ND（改変禁止）は翻訳や字幕の付け直しを妨げるので選択肢から外しています。</p>
+      ${sel("publish.license", "動画に付ける表示", LICENSES)}
+      <div class="prompt"><pre id="lic-text">${esc(licenseText())}</pre><div class="row"><button class="b small" data-act="copy" data-src="lic-text" type="button">コピー</button></div></div>
     </section>
     <section class="panel"><h3>投稿の説明文</h3>
       <div class="tabs" role="tablist">${[["youtube", "YouTube"], ["tiktok", "TikTok"], ["instagram", "Instagram"], ["x", "X"]].map(([k, t]) => `<button role="tab" type="button" data-act="plat" data-tab="${k}" aria-selected="${plat === k}">${t}</button>`).join("")}</div>
       ${eps.map((ep) => `<div class="prompt"><h3 style="font-size:.95rem">${esc(ep.title)} ${approved(ep) ? "" : '<span class="chip warn">未承認</span>'}</h3><pre id="desc-${ep.id}">${esc(description(ep, plat))}</pre><div class="row"><button class="b small" data-act="copy" data-src="desc-${ep.id}" type="button">コピー</button></div></div>`).join("") || '<p class="muted">台本ができた回がありません。</p>'}
       <p class="note">YouTube と TikTok では、AI で作った内容であることを投稿時の設定でも示してください（各サービスの「改変・合成コンテンツ」などの項目）。</p>
     </section>
-    <section class="panel"><h3>シリーズ一式の書き出し</h3>
-      <p>台本（JSON）、事実カード、監修の記録、説明文をまとめた ZIP を作ります。自分のパソコンで高音質の音声を使って一括作成するとき（「AIに頼む」）にも使います。</p>
+    <section class="panel"><h3>シリーズ一式と記録の書き出し</h3>
+      <p>台本（JSON）、事実カード、説明文に加えて、マニュアルの記録様式（様式1 事実抽出・検証票、様式2 素材・権利台帳、様式3 独立創作記録と AI 利用記録、様式4 類似性・公開前監査票、最終承認）を、同じ版番号でまとめた ZIP を作ります。完成した動画と一緒に、所属の規程に従って保管してください。</p>
       <div class="row"><button class="b primary" data-act="zip" type="button" ${eps.length ? "" : "disabled"}>series_package.zip を書き出す</button></div>
     </section>`;
   };
@@ -525,7 +706,8 @@
     const have = new Set(S.cards.map((c) => c.id));
     SAMPLE.cards.forEach((c) => { if (!have.has(c.id)) S.cards.push(JSON.parse(JSON.stringify(c))); });
     const p = S.project;
-    if (!p.seriesTitle) Object.assign(p, { seriesTitle: "おなかの不調、それって気のせい？", org: "サンプル消化器ケア協会（架空の団体）", domain: "過敏性腸症候群（IBS）", supervisor: "（監修者名）", prefix: "NG", topics: "過敏性腸症候群の診断基準（Rome V）\n機能性ディスペプシアの診断基準（Rome V）" });
+    if (!p.seriesTitle) Object.assign(p, { seriesTitle: "おなかの不調、それって気のせい？", org: "サンプル消化器ケア協会（架空の団体）", domain: "過敏性腸症候群（IBS）", supervisor: "（監修者名）", owner: "（責任者名）", mgmtNo: "SAMPLE-001", scope: "public", period: "（公開予定期間）", updater: "（更新責任者）",
+      objLevel: "医学の知識はない。病名は聞いたことがある", objAction: "検査で異常がなくても、おなかの症状が続くときは専門医に相談しようと思える", objScene: "受診を迷っているとき", objOut: "薬の選び方、個別の治療相談", prefix: "NG", topics: "過敏性腸症候群の診断基準（Rome V）\n機能性ディスペプシアの診断基準（Rome V）" });
     if (!S.episodes.length) {
       S.episodes = [
         { id: "ep01", title: "「検査で異常なし」は気のせい？", cards: ["NG-130", "NG-232", "NG-127"], script: JSON.parse(JSON.stringify(SAMPLE.script)), checks: [], semantic: "", approval: {} },
@@ -537,9 +719,11 @@
     toast("見本を読み込みました（カード" + SAMPLE.cards.length + "件・2回分）"); render();
   }
 
-  function importCards(text) {
+  function importCards(text, purpose) {
     const cs = parseCards(text); const m = new Map(S.cards.map((c) => [c.id, c]));
-    cs.forEach((c) => m.set(c.id, c)); S.cards = [...m.values()].sort((a, b) => a.id.localeCompare(b.id));
+    cs.forEach((c) => { const old = m.get(c.id); if (old && old.verification && !c.verification) c.verification = old.verification; m.set(c.id, c); });
+    S.cards = [...m.values()].sort((a, b) => a.id.localeCompare(b.id));
+    logAI({ step: "事実カード", service: S.ui.aiService || "（未記入）", purpose: purpose || "事実カードの作成・取り込み", detail: cs.length + "件（" + cs.map((c) => c.id).slice(0, 5).join("、") + (cs.length > 5 ? "…" : "") + "）" });
     toast(cs.length + "件のカードを読み込みました"); render();
   }
 
@@ -549,14 +733,23 @@
     const sc = JSON.parse(t.slice(a, b + 1));
     if (!Array.isArray(sc.scenes) || !sc.scenes.length) throw new Error("scenes（場面の並び）がありません。");
     sc.scenes.forEach((s) => { s.cards = Array.isArray(s.cards) ? s.cards : []; if (!s.speech) s.speech = s.narration; });
-    ep.script = sc; S.ui.scriptTab[ep.id] = "edit";
+    ep.script = sc; ep.aiOriginal = JSON.stringify(sc); S.ui.scriptTab[ep.id] = "edit";
+    logAI({ step: "台本", service: S.ui.aiService || "（未記入）", purpose: "台本の下書き（" + ep.title + "）", detail: "依頼文：スタジオの台本用の依頼文（事実カード " + ep.cards.join("、") + "、学習目標、構成メモ）" });
     const bad = hardFail(runChecks(ep)).length; toast(bad ? "読み込みました。照合で " + bad + " 件の不合格があります" : "読み込みました。照合はすべて合格です");
     render();
   }
 
+  const AUD = { public: "一般の人", student: "医療系の学生", pro: "医療者" };
+  const scopeName = () => (SCOPES.find(([v]) => v === S.project.scope) || ["", "未定"])[1];
+  function headLines(title) {
+    const pj = S.project;
+    return ["# " + title, "", "| 項目 | 内容 |", "|---|---|", "| 教材名 | " + pj.seriesTitle + " |", "| 教材管理番号 | " + (pj.mgmtNo || "") + " |", "| 版 | " + (pj.edition || "") + " |",
+      "| 責任者 | " + (pj.owner || "") + " |", "| 公開範囲 | " + scopeName() + " |", "| 作成日 | " + today() + " |", "", "準拠：" + manualName(), ""];
+  }
   function packet(ep) {
-    const cm = cardMap(), pj = S.project;
-    const L = ["# 監修用資料：" + ep.title, "", "- シリーズ：" + pj.seriesTitle, "- 発信：" + pj.org, "- 視聴者：" + pj.audience, "- 作成日：" + today(), "", "## 場面と根拠", ""];
+    const cm = cardMap(), pj = S.project, au = ep.audit || {}, ap = ep.approval || {};
+    const L = headLines("監修・監査用資料（様式4を含む）：" + ep.title);
+    L.push("- 発信：" + pj.org, "- 視聴者：" + (AUD[pj.audience] || pj.audience), "- 学習目標：" + (ep.objective || pj.objAction || ""), "- 自分で決めた構成：" + (ep.plan || ""), "", "## 場面と根拠", "");
     ep.script.scenes.forEach((s, i) => {
       L.push("### 場面" + (i + 1) + "（" + s.kind + "）", "- 大見出し：" + String(s.caption || "").replace(/\n/g, " "), "- 字幕：" + s.narration, "- 読み上げ：" + (s.speech || ""), "- 根拠：");
       (s.cards || []).forEach((id) => { const c = cm[id]; L.push("  - " + id + "：" + (c ? c.assertion.plain_statement_ja + "（" + c.provenance.source + "）" : "見つからない")); });
@@ -565,8 +758,55 @@
     L.push("## 自動照合の結果", "");
     runChecks(ep).forEach((r) => L.push("- " + (r.ok ? "OK" : r.soft ? "確認" : "NG") + " 場面" + r.n + " " + r.k + " " + r.d));
     if (ep.semantic) L.push("", "## 別のAIによる照合メモ", "", ep.semantic);
-    L.push("", "## 承認", "", "- 監修者：", "- 承認日：", "- コメント：", "", "---", "クリーンルーム動画スタジオで作成");
+    L.push("", "## 類似性・公開前監査（様式4）", "");
+    AUDIT_ITEMS.forEach(([k, t]) => L.push("- [" + (au.checks && au.checks[k] ? "x" : " ") + "] " + t));
+    L.push("", "- 監査結果：" + ((AUDIT_RESULTS.find(([v]) => v === au.result) || ["", "（未記入）"])[1]), "- 監査担当：" + (au.auditor || ""), "- 監査日：" + (au.date || ""));
+    L.push("", "## 監修と承認", "", "- 監修者：" + (ap.reviewer || ""), "- 承認日：" + (ap.date || ""), "- コメント：" + (ap.comment || ""), "- 状態：" + (approved(ep) ? "承認済み" : "未承認"), "", "---", "クリーンルーム動画スタジオで作成");
     return L.join("\n");
+  }
+  const csv = (rows) => "﻿" + rows.map((r) => r.map((x) => '"' + String(x == null ? "" : x).replace(/"/g, '""') + '"').join(",")).join("\r\n");
+  function form1() {
+    const eps = S.episodes;
+    return csv([["教材管理番号", "事実ID", "中立的な事実・命題", "一次資料（著者・題名・年・DOI/URL）", "DOI", "ライセンス", "利用根拠", "対象・条件・単位・時点", "一致・不一致／限界", "教材での使用箇所", "確認者", "確認日", "照合状態"]].concat(
+      S.cards.map((c) => [S.project.mgmtNo, c.id, c.assertion.plain_statement_ja, c.provenance.source, c.provenance.doi, c.provenance.source_license, c.provenance.legal_basis, JSON.stringify(c.assertion.condition || ""), c.uncertainty || "",
+        eps.filter((e) => e.cards.includes(c.id)).map((e) => e.title).join("／"), (c.verification || {}).by, (c.verification || {}).date, (c.publication_info || {}).status])));
+  }
+  function form2() {
+    const eps = S.episodes.filter((e) => e.script), rows = [["素材ID", "素材・出典", "利用箇所", "利用根拠（A〜G）", "条件・表示・取得日", "証拠ファイル"]];
+    const used = new Set(eps.flatMap((e) => e.script.scenes.flatMap((s) => s.cards || [])));
+    S.cards.filter((c) => used.has(c.id)).forEach((c) => rows.push([c.id, c.provenance.source, eps.filter((e) => e.script.scenes.some((s) => (s.cards || []).includes(c.id))).map((e) => e.id).join("／"), c.provenance.legal_basis || "B", (c.provenance.source_license || "") + (c.provenance.accessed ? "／確認日 " + c.provenance.accessed : ""), "cards.json"]));
+    eps.forEach((e) => rows.push(["SCRIPT-" + e.id, "台本（字幕・読み上げ・構成）", e.id, "A（自作。AI の利用は様式3）", "", "scripts/" + e.id + ".json、records/form3_independent_creation.md"]));
+    const vis = new Set(eps.flatMap((e) => e.script.scenes.map((s) => s.visual)));
+    [...vis].forEach((v) => rows.push(["ILL-" + v, S.custom[v] ? "追加した挿絵（SVG）" : "組み込みの挿絵（クリーンルーム動画スタジオ）", "各回", S.custom[v] ? "A（自作。AI で作った場合は様式3に記録）" : "F（MIT License）", "", S.custom[v] ? "作業ファイル（custom）" : CFG.repository]));
+    rows.push(["FONT", "Zen Kaku Gothic New・BIZ UDPGothic（Google Fonts）", "全体", "F（SIL Open Font License）", "", "https://fonts.google.com/"]);
+    const tts = { none: ["なし（字幕のみ）", "—"], upload: ["自分で用意した音声", "A または G（話者・実演者の同意と権利を確認）"], google: ["Google Cloud Text-to-Speech", "G（サービスの利用規約）"], browser: ["なし（試聴のみ）", "—"] }[S.tts.mode] || ["", ""];
+    rows.push(["VOICE", "ナレーション：" + tts[0], "全体", tts[1], "", ""]);
+    rows.push(["BGM", "使用しない", "—", "—", "", ""]);
+    return csv(rows);
+  }
+  function form3() {
+    const pj = S.project, eps = S.episodes.filter((e) => e.script);
+    const L = headLines("独立創作記録（様式3）");
+    L.push("## 学習目標と独自の教育設計", "", "- 視聴者：" + (AUD[pj.audience] || ""), "- レベルと前提知識：" + (pj.objLevel || ""), "- 見終わったあとにできること：" + (pj.objAction || ""), "- 扱う場面：" + (pj.objScene || ""), "- 確かめ方：" + (pj.objEval || ""), "- 扱わない範囲：" + (pj.objOut || ""), "");
+    eps.forEach((e) => {
+      const ed = editedScenes(e);
+      L.push("### " + e.title, "- 事実カード：" + e.cards.join("、"), "- 学習目標：" + (e.objective || ""), "- 自分で決めた構成：" + (e.plan || ""),
+        "- AI の下書き：" + (e.aiOriginal ? "あり" : "なし（人が作成）"), "- 人が直した場面：" + (ed === null ? "—" : ed + "/" + e.script.scenes.length), "");
+    });
+    L.push("## 生成AIの利用", "", "| 日時 | 工程 | サービス名・モデル名 | 用途 | 内容 |", "|---|---|---|---|---|");
+    S.aiLog.forEach((a) => L.push("| " + [a.date, a.step, a.service, a.purpose, a.detail].map((x) => String(x || "").replace(/\|/g, "／")).join(" | ") + " |"));
+    L.push("", "## 共同制作者と担当", "", "- 責任者：" + (pj.owner || ""), "- 共同制作者：" + (pj.coauthors || ""), "- 監修者：" + (pj.supervisor || ""));
+    return L.join("\n");
+  }
+  function finalApproval() {
+    const { auto, manual, rk } = publishItems(), pj = S.project;
+    const L = headLines("最終チェックと最終承認");
+    L.push("- リスク区分：" + rk.lv + "（" + rk.why + "）", "- 公開日：" + (S.publish.pubDate || ""), "- 権利表示：" + licenseText(), S.publish.legalReview ? "- 法務・専門家の確認：" + S.publish.legalReview : null, "", "## 自動で確かめた項目", "");
+    auto.forEach(([t, ok]) => L.push("- [" + (ok ? "x" : " ") + "] " + t));
+    L.push("", "## 責任者が確かめた項目", "");
+    manual.forEach(([t, ok]) => L.push("- [" + (ok ? "x" : " ") + "] " + t));
+    L.push("", "## 最終承認", "", "| 項目 | 内容 |", "|---|---|", "| 教材名 | " + pj.seriesTitle + " |", "| 版 | " + (pj.edition || "") + " |", "| 責任者 | " + (pj.owner || "") + " |", "| 承認日 |  |", "| 公開範囲 | " + scopeName() + " |", "| 未解決事項 |  |");
+    return L.filter((x) => x !== null).join("\n");
   }
 
   async function makeZip() {
@@ -574,16 +814,22 @@
     const z = new window.JSZip(); const eps = S.episodes.filter((e) => e.script);
     z.file("cards.json", JSON.stringify(S.cards, null, 1));
     eps.forEach((ep) => {
-      const sc = Object.assign({}, ep.script, { ai_notice: S.project.aiNotice, approved: approved(ep), approval: ep.approval });
+      const sc = Object.assign({}, ep.script, { ai_notice: S.project.aiNotice, approved: approved(ep), approval: ep.approval, audit: ep.audit || {}, edition: S.project.edition });
       z.file("scripts/" + ep.id + ".json", JSON.stringify(sc, null, 1));
-      z.file("review/" + ep.id + ".md", packet(ep));
+      z.file("records/form4_audit_" + ep.id + ".md", packet(ep));
       z.file("descriptions/" + ep.id + ".txt", description(ep, "youtube"));
     });
+    z.file("records/form1_fact_verification.csv", form1());
+    z.file("records/form2_rights_ledger.csv", form2());
+    z.file("records/form3_independent_creation.md", form3());
+    z.file("records/ai_log.csv", csv([["日時", "工程", "サービス名・モデル名", "用途", "内容"]].concat(S.aiLog.map((a) => [a.date, a.step, a.service, a.purpose, a.detail]))));
+    z.file("records/final_approval.md", finalApproval());
+    z.file("LICENSE_NOTICE.txt", licenseText());
     z.file("AI_RULES.md", P.agentsMemo(S.project, "other"));
     z.file("CLAUDE.md", P.agentsMemo(S.project, "claude"));
     z.file("AGENTS.md", P.agentsMemo(S.project, "codex"));
-    z.file("README.txt", [S.project.seriesTitle, "", "クリーンルーム動画スタジオで作ったシリーズ一式です。", "scripts/：台本（JSON）　cards.json：事実カード　review/：監修用資料　descriptions/：投稿の説明文", "", "本ツールの開発は、" + CFG.grants.map((g) => g.funder).join("、") + "の助成を受けて行いました。", CFG.repository].join("\n"));
-    download("series_package.zip", await z.generateAsync({ type: "blob" }));
+    z.file("README.txt", [S.project.seriesTitle + "　版 " + (S.project.edition || ""), "", "クリーンルーム動画スタジオで作ったシリーズ一式です。", "scripts/：台本（JSON）　cards.json：事実カード　descriptions/：投稿の説明文", "records/：記録様式（様式1〜4、AI利用記録、最終承認）", "", "準拠：" + manualName(), "", "本ツールの開発は、" + CFG.grants.map((g) => g.funder).join("、") + "の助成を受けて行いました。", CFG.repository].join("\n"));
+    download("series_package_v" + (S.project.edition || "1") + ".zip", await z.generateAsync({ type: "blob" }));
   }
 
   document.addEventListener("click", async (ev) => {
@@ -604,7 +850,7 @@
       else if (act === "script-tab") { S.ui.scriptTab[b.dataset.ep] = b.dataset.tab; render(); }
       else if (act === "script-import") importScript(epOf(b.dataset.ep), $("#script-paste-" + b.dataset.ep).value);
       else if (act === "draft") { const ep = epOf(b.dataset.ep); ep.script = draftScript(ep); if (!ep.script) throw new Error("この回にカードがありません"); S.ui.scriptTab[ep.id] = "edit"; toast("下書きを作りました。字幕を短く直してください"); render(); }
-      else if (act === "approve") { const ep = epOf(b.dataset.ep); const ap = ep.approval || {}; if (!ap.reviewer && !S.project.supervisor) throw new Error("監修者の名前を入れてください"); ep.approval = Object.assign({ reviewer: S.project.supervisor, date: today() }, ap, { approved: true, hash: hash(ep.script) }); toast("承認しました"); render(); }
+      else if (act === "approve") { const ep = epOf(b.dataset.ep); const ap = ep.approval || {}; if (!ap.reviewer && !S.project.supervisor) throw new Error("監修者の名前を入れてください"); if (!auditOk(ep)) throw new Error("監査（6項目・監査担当・結果）がそろっていません"); ep.approval = Object.assign({ reviewer: S.project.supervisor, date: today() }, ap, { approved: true, hash: hash(ep.script) }); toast("承認しました"); render(); }
       else if (act === "unapprove") { epOf(b.dataset.ep).approval.approved = false; render(); }
       else if (act === "packet") { const ep = epOf(b.dataset.ep); download("review_" + ep.id + ".md", packet(ep), "text/markdown;charset=utf-8"); }
       else if (act === "tts-tab") { S.tts.mode = b.dataset.tab; render(); }
@@ -627,7 +873,7 @@
       else if (act === "zip") await makeZip();
       else if (act === "ai-tool") { S.ui.aiTool = b.dataset.tab; render(); }
       else if (act === "memo-dl") { const T = P.TOOLS[S.ui.aiTool]; download(T.memo === "README" ? "AI_RULES.md" : T.memo, P.agentsMemo(S.project, S.ui.aiTool), "text/markdown;charset=utf-8"); }
-      else if (act === "back-cards") importCards($("#back-cards").value);
+      else if (act === "back-cards") importCards($("#back-cards").value, "文献番号とライセンスの照合（コード生成AI）");
       else if (act === "svg-prompt") { S.ui.svgName = $("#svg-name").value.trim(); S.ui.svgDesc = $("#svg-desc").value.trim(); S.ui.svgPrompt = P.svg(S.ui.svgName, S.ui.svgDesc); render(); }
       else if (act === "svg-add") {
         const name = ($("#svg-name").value || "").trim(); if (!/^[a-z][a-z0-9_]{1,30}$/.test(name)) throw new Error("絵の名前は英小文字で始まる英数字（_ 可）にしてください");
@@ -656,6 +902,8 @@
       save(); clearTimeout(window.__chk); window.__chk = setTimeout(() => { const pos = scrollY; const id = document.activeElement && document.activeElement.id; render(); scrollTo(0, pos); if (id && $("#" + CSS.escape(id))) { const n = $("#" + CSS.escape(id)); n.focus(); if (n.setSelectionRange && n.value != null) { try { n.setSelectionRange(n.value.length, n.value.length); } catch (e) { } } } }, 900);
     } else if (el.dataset.scf) { const ep = S.episodes.find((e) => e.id === el.dataset.scf); ep.script[el.dataset.k] = el.value; save(); }
     else if (el.dataset.ap) { const ep = S.episodes.find((e) => e.id === el.dataset.ap); ep.approval = ep.approval || {}; ep.approval[el.dataset.k] = el.value; save(); }
+    else if (el.dataset.ver) { const c = S.cards.find((x) => x.id === el.dataset.ver); c.verification = c.verification || {}; c.verification[el.dataset.k] = el.value; save(); }
+    else if (el.dataset.audit && el.type !== "checkbox" && el.tagName !== "SELECT") { const ep = S.episodes.find((e) => e.id === el.dataset.audit); ep.audit = ep.audit || { checks: {} }; ep.audit[el.dataset.k] = el.value; save(); }
     else if (el.dataset.semantic) { const ep = S.episodes.find((e) => e.id === el.dataset.semantic); ep.semantic = el.value; save(); }
   });
 
@@ -664,7 +912,9 @@
     if (el.dataset.actChange === "video-ep") { S.ui.videoEp = el.value; render(); }
     else if (el.dataset.actChange === "ai-task") { S.ui.aiTask = el.value; render(); }
     else if (el.dataset.sc && el.tagName === "SELECT") { render(); }
-    else if (el.dataset.bind && el.tagName === "SELECT") { render(); }
+    else if (el.dataset.audit) { const ep = S.episodes.find((e) => e.id === el.dataset.audit); ep.audit = ep.audit || { checks: {} }; ep.audit.checks = ep.audit.checks || {}; if (el.type === "checkbox") ep.audit.checks[el.dataset.k] = el.checked; else ep.audit[el.dataset.k] = el.value; render(); }
+    else if (el.dataset.audit === undefined && el.dataset.pcheck) { S.publish.checks[el.dataset.pcheck] = el.checked; render(); }
+    else if (el.dataset.bind && (el.tagName === "SELECT" || el.type === "checkbox" || el.type === "date")) { const pos = scrollY; render(); scrollTo(0, pos); }
     else if (el.id === "cards-file" && el.files[0]) { try { importCards(await el.files[0].text()); } catch (e) { toast(e.message); } }
     else if (el.dataset.audio && el.files[0]) {
       const id = el.dataset.audio, i = +el.dataset.i; const ep = S.episodes.find((e) => e.id === id);
@@ -689,6 +939,7 @@
 
   // 起動
   S = Object.assign(fresh(), S); S.ui = Object.assign(fresh().ui, S.ui || {}); S.project = Object.assign(fresh().project, S.project || {});
+  S.project.risks = Object.assign(fresh().project.risks, S.project.risks || {}); S.publish = Object.assign(fresh().publish, S.publish || {}); S.publish.checks = S.publish.checks || {}; S.aiLog = S.aiLog || [];
   renderFooter(); restoreCustom().then(render);
-  window.CRVS_APP = { state: () => S, runChecks, parseCards, cardIssues, draftScript };
+  window.CRVS_APP = { state: () => S, runChecks, parseCards, cardIssues, draftScript, records: () => ({ form1: form1(), form2: form2(), form3: form3(), final: finalApproval(), packet: S.episodes[0] && S.episodes[0].script ? packet(S.episodes[0]) : "" }) };
 })();
