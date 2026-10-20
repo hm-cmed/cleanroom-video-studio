@@ -207,7 +207,7 @@
   </section>
   <section class="panel quiet">
     <h3>まず見本で試す</h3>
-    <p class="lead">日本神経消化器病学会の広報用に作った事実カード6件と台本1本を読み込みます。各工程の画面がどう埋まるかを確かめてから、自分の企画に切り替えてください。</p>
+    <p class="lead">架空の団体「サンプル消化器ケア協会」が作った想定の、事実カード6件と台本1本を読み込みます。各工程の画面がどう埋まるかを確かめてから、自分の企画に切り替えてください。</p>
     <div class="row"><button class="b primary" data-act="load-sample" type="button">見本を読み込む</button>
     <button class="b" data-go="plan" type="button">自分の企画から始める</button></div>
     <p class="muted" style="font-size:.85rem">作業の内容はこのブラウザに自動で保存されます。別のパソコンで続けるときは、右上の「作業を保存（ファイル）」を使ってください。</p>
@@ -525,7 +525,7 @@
     const have = new Set(S.cards.map((c) => c.id));
     SAMPLE.cards.forEach((c) => { if (!have.has(c.id)) S.cards.push(JSON.parse(JSON.stringify(c))); });
     const p = S.project;
-    if (!p.seriesTitle) Object.assign(p, { seriesTitle: "おなかの不調、それって気のせい？", org: "日本神経消化器病学会（見本）", domain: "過敏性腸症候群（IBS）", supervisor: "（監修者名）", prefix: "NG", topics: "過敏性腸症候群の診断基準（Rome V）\n機能性ディスペプシアの診断基準（Rome V）" });
+    if (!p.seriesTitle) Object.assign(p, { seriesTitle: "おなかの不調、それって気のせい？", org: "サンプル消化器ケア協会（架空の団体）", domain: "過敏性腸症候群（IBS）", supervisor: "（監修者名）", prefix: "NG", topics: "過敏性腸症候群の診断基準（Rome V）\n機能性ディスペプシアの診断基準（Rome V）" });
     if (!S.episodes.length) {
       S.episodes = [
         { id: "ep01", title: "「検査で異常なし」は気のせい？", cards: ["NG-130", "NG-232", "NG-127"], script: JSON.parse(JSON.stringify(SAMPLE.script)), checks: [], semantic: "", approval: {} },
