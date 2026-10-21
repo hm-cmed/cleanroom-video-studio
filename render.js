@@ -279,8 +279,9 @@
     const actx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 48000, 48000);
     const out = [];
     for (const s of ep.script.scenes) {
-      const r = await fetch("https://texttospeech.googleapis.com/v1/text:synthesize?key=" + encodeURIComponent(key), {
-        method: "POST", headers: { "Content-Type": "application/json" },
+      // API キーは URL に入れず、ヘッダーで送る（閲覧履歴やログに残りにくくする）
+      const r = await fetch("https://texttospeech.googleapis.com/v1/text:synthesize", {
+        method: "POST", headers: { "Content-Type": "application/json", "X-Goog-Api-Key": key },
         body: JSON.stringify({ input: { text: s.speech || s.narration }, voice: { languageCode: "ja-JP", name: voice }, audioConfig: { audioEncoding: "MP3", speakingRate: rate || 1.0 } })
       });
       if (!r.ok) throw new Error("音声合成に失敗しました（" + r.status + "）。API キーと、Text-to-Speech API が有効になっているかを確認してください。");

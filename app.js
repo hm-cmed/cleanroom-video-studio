@@ -48,12 +48,33 @@
     if (p.scope === "partners" || r.others || r.photo || r.video) return { lv: "中", why: "複数機関での利用か第三者の素材があるため、権利担当または別の担当者による監査が必要です" };
     return { lv: "低", why: "制作者のセルフチェックと責任者の確認で進められます" };
   }
+  /* 読み込んだデータの安全化：プロトタイプ汚染につながるキーを捨て、画面の属性や ID に入る値の形を確かめる */
+  const BAD_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+  const safeParse = (t) => JSON.parse(t, (k, v) => (BAD_KEYS.has(k) ? undefined : v));
+  const SAFE_ID = /^[A-Za-z0-9_-]{1,40}$/, SAFE_VIS = /^[a-z][a-z0-9_]{1,30}$/;
+  function sanitize(d) {
+    if (!d || typeof d !== "object") return null;
+    if (!Array.isArray(d.cards)) d.cards = [];
+    d.cards = d.cards.filter((c) => c && typeof c === "object" && typeof c.id === "string" && c.assertion && typeof c.assertion === "object" && c.provenance && typeof c.provenance === "object");
+    if (!Array.isArray(d.episodes)) d.episodes = [];
+    d.episodes = d.episodes.filter((e) => e && typeof e === "object").map((e, i) => {
+      if (typeof e.id !== "string" || !SAFE_ID.test(e.id)) e.id = "ep" + String(i + 1).padStart(2, "0") + "x";
+      e.cards = Array.isArray(e.cards) ? e.cards.filter((x) => typeof x === "string") : [];
+      if (e.script && (typeof e.script !== "object" || !Array.isArray(e.script.scenes))) e.script = null;
+      if (e.script) e.script.scenes = e.script.scenes.filter((x) => x && typeof x === "object").map((x) => { x.cards = Array.isArray(x.cards) ? x.cards.filter((y) => typeof y === "string") : []; if (typeof x.visual !== "string" || !SAFE_VIS.test(x.visual)) x.visual = "question"; return x; });
+      return e;
+    });
+    const custom = {}; Object.entries(d.custom && typeof d.custom === "object" ? d.custom : {}).forEach(([k, v]) => { if (SAFE_VIS.test(k) && typeof v === "string") custom[k] = v; }); d.custom = custom;
+    if (!STEPS.some((x) => x.id === d.step)) d.step = "intro";
+    if (!Array.isArray(d.aiLog)) d.aiLog = [];
+    return d;
+  }
   let S = load() || fresh();
   const audioStore = {}; // 回の id → 場面ごとの AudioBuffer（保存しない）
   let apiKey = "";
   let player = null;
 
-  function load() { try { const t = localStorage.getItem(KEY); return t ? JSON.parse(t) : null; } catch (e) { return null; } }
+  function load() { try { const t = localStorage.getItem(KEY); return t ? sanitize(safeParse(t)) : null; } catch (e) { return null; } }
   let saveTimer = 0;
   function save() { clearTimeout(saveTimer); saveTimer = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { } }, 300); }
 
@@ -84,7 +105,7 @@
     const bodies = fence.length ? fence : [text];
     const out = [];
     for (const b of bodies) {
-      try { data = JSON.parse(b); }
+      try { data = safeParse(b); }
       catch (e) {
         if (!window.jsyaml) throw new Error("YAML を読む部品を読み込めませんでした。JSON で貼り付けるか、インターネットにつながる環境で開いてください。");
         try { data = window.jsyaml.load(b); } catch (e2) { continue; }
@@ -401,13 +422,13 @@
     const eps = S.episodes.map((ep, i) => `
       <div class="ep">
         <div class="hd"><div class="row" style="flex:1;min-width:0"><span class="chip">第${i + 1}回</span>
-          <input type="text" id="ep-title-${ep.id}" data-ep="${ep.id}" data-epf="title" value="${esc(ep.title)}" style="flex:1;min-width:180px" aria-label="回の題"></div>
-          <button class="b small" data-act="ep-del" data-id="${ep.id}" type="button">この回を削除</button></div>
+          <input type="text" id="ep-title-${esc(ep.id)}" data-ep="${esc(ep.id)}" data-epf="title" value="${esc(ep.title)}" style="flex:1;min-width:180px" aria-label="回の題"></div>
+          <button class="b small" data-act="ep-del" data-id="${esc(ep.id)}" type="button">この回を削除</button></div>
         <div class="grid2">
-          <label class="f">この回の学習目標<span class="h">見終わったあとにできること</span><input type="text" id="ep-obj-${ep.id}" data-ep="${ep.id}" data-epf="objective" value="${esc(ep.objective || "")}"></label>
-          <label class="f">自分で決めた構成<span class="h">例：誤解の問いかけ → 基準の数字 → 受診の目安。AI はこの順に沿って書きます</span><input type="text" id="ep-plan-${ep.id}" data-ep="${ep.id}" data-epf="plan" value="${esc(ep.plan || "")}"></label>
+          <label class="f">この回の学習目標<span class="h">見終わったあとにできること</span><input type="text" id="ep-obj-${esc(ep.id)}" data-ep="${esc(ep.id)}" data-epf="objective" value="${esc(ep.objective || "")}"></label>
+          <label class="f">自分で決めた構成<span class="h">例：誤解の問いかけ → 基準の数字 → 受診の目安。AI はこの順に沿って書きます</span><input type="text" id="ep-plan-${esc(ep.id)}" data-ep="${esc(ep.id)}" data-epf="plan" value="${esc(ep.plan || "")}"></label>
         </div>
-        <div class="cardlist">${S.cards.map((c) => `<label class="cardpick"><input type="checkbox" data-act="ep-card" data-ep="${ep.id}" data-id="${esc(c.id)}" ${ep.cards.includes(c.id) ? "checked" : ""}>${esc(c.id)}</label>`).join("")}</div>
+        <div class="cardlist">${S.cards.map((c) => `<label class="cardpick"><input type="checkbox" data-act="ep-card" data-ep="${esc(ep.id)}" data-id="${esc(c.id)}" ${ep.cards.includes(c.id) ? "checked" : ""}>${esc(c.id)}</label>`).join("")}</div>
         <p class="muted" style="font-size:.85rem">${ep.cards.map((id) => cm[id] ? esc(id + "：" + (cm[id].assertion.common_misconception || cm[id].assertion.plain_statement_ja).slice(0, 40)) : "").join("<br>") || "カードを選んでください"}</p>
       </div>`).join("");
     return `
@@ -456,9 +477,9 @@
           <div class="row" style="justify-content:space-between"><h3>第${i + 1}回　${esc(ep.title)}</h3>
             <div class="row">${ed !== null ? `<span class="chip info">人が直した場面 ${ed}/${ep.script.scenes.length}</span>` : ""}${approved(ep) ? '<span class="chip ok">承認済み</span>' : ep.approval && ep.approval.approved ? '<span class="chip warn">承認後に変更あり</span>' : ""}</div></div>
           ${!ep.objective && !S.project.objAction ? '<p class="note warn">学習目標が未設定です。「企画」か「シリーズ構成」で決めてから依頼文を作ってください。</p>' : ""}
-          <div class="tabs" role="tablist">${[["ai", "AI に頼む"], ["paste", "貼り付け"], ["edit", "確認・修正"], ["check", "別のAIで意味を照合"]].map(([k, t]) => `<button role="tab" type="button" data-act="script-tab" data-ep="${ep.id}" data-tab="${k}" aria-selected="${tab === k}">${t}</button>`).join("")}</div>
-          ${tab === "ai" ? promptBox(P.script(S.project, ep, cards, Object.keys(S.custom)), "script-" + ep.id) + `<div class="row"><button class="b small" data-act="draft" data-ep="${ep.id}" type="button">AI を使わずに下書きを作る</button><span class="muted" style="font-size:.8rem">カードの文をそのまま並べた下書きです。字幕が長すぎるので、手で短くする必要があります。</span></div>` : ""}
-          ${tab === "paste" ? `${aiServiceField("ai-service-" + ep.id)}<label class="f">AI が返した JSON<textarea id="script-paste-${ep.id}" class="mono tall"></textarea></label><div class="row"><button class="b primary" data-act="script-import" data-ep="${ep.id}" type="button">読み込んで照合する</button></div>` : ""}
+          <div class="tabs" role="tablist">${[["ai", "AI に頼む"], ["paste", "貼り付け"], ["edit", "確認・修正"], ["check", "別のAIで意味を照合"]].map(([k, t]) => `<button role="tab" type="button" data-act="script-tab" data-ep="${esc(ep.id)}" data-tab="${k}" aria-selected="${tab === k}">${t}</button>`).join("")}</div>
+          ${tab === "ai" ? promptBox(P.script(S.project, ep, cards, Object.keys(S.custom)), "script-" + ep.id) + `<div class="row"><button class="b small" data-act="draft" data-ep="${esc(ep.id)}" type="button">AI を使わずに下書きを作る</button><span class="muted" style="font-size:.8rem">カードの文をそのまま並べた下書きです。字幕が長すぎるので、手で短くする必要があります。</span></div>` : ""}
+          ${tab === "paste" ? `${aiServiceField("ai-service-" + ep.id)}<label class="f">AI が返した JSON<textarea id="script-paste-${esc(ep.id)}" class="mono tall"></textarea></label><div class="row"><button class="b primary" data-act="script-import" data-ep="${esc(ep.id)}" type="button">読み込んで照合する</button></div>` : ""}
           ${tab === "edit" ? (ep.script ? editScript(ep) : '<p class="muted">まだ台本がありません。</p>') : ""}
           ${tab === "check" ? (ep.script ? promptBox(P.semantic(ep, cards), "sem-" + ep.id) + `<p class="muted" style="font-size:.85rem">台本を書いたものとは別のチャットAI に送ると、意味の取り違えを見つけやすくなります。結果は監修者への申し送りとして残せます。</p>${fld2("sem-" + ep.id, "照合の結果（メモ）", ep.semantic)}` : '<p class="muted">台本ができてから使えます。</p>') : ""}
           ${ep.script ? checksHtml(ep) : ""}
@@ -472,21 +493,21 @@
     return `<div class="grid3">
         ${sf(ep, "theme", "問いかけの題")}${sf(ep, "disease", "病名ラベル")}${sf(ep, "standard", "基準名")}</div>
       ${sc.scenes.map((s, i) => `<div class="scene"><div class="hd"><div class="row"><span class="chip">場面${i + 1}</span>
-          <select id="sv-${ep.id}-${i}" data-sc="${ep.id}" data-i="${i}" data-k="visual" aria-label="絵の種類">${vis.map((v) => `<option ${s.visual === v ? "selected" : ""}>${v}</option>`).join("")}</select>
-          <select id="sk-${ep.id}-${i}" data-sc="${ep.id}" data-i="${i}" data-k="kind" aria-label="場面の役割">${[["misconception", "誤解の問いかけ"], ["fact", "事実"], ["closing", "締め"]].map(([v, t]) => `<option value="${v}" ${s.kind === v ? "selected" : ""}>${t}</option>`).join("")}</select></div>
+          <select id="sv-${esc(ep.id)}-${i}" data-sc="${esc(ep.id)}" data-i="${i}" data-k="visual" aria-label="絵の種類">${vis.map((v) => `<option ${s.visual === v ? "selected" : ""}>${esc(v)}</option>`).join("")}</select>
+          <select id="sk-${esc(ep.id)}-${i}" data-sc="${esc(ep.id)}" data-i="${i}" data-k="kind" aria-label="場面の役割">${[["misconception", "誤解の問いかけ"], ["fact", "事実"], ["closing", "締め"]].map(([v, t]) => `<option value="${v}" ${s.kind === v ? "selected" : ""}>${t}</option>`).join("")}</select></div>
           <span class="muted" style="font-size:.8rem">根拠：${esc((s.cards || []).join("、") || "なし")}</span></div>
         <div class="grid2">
-          <label class="f">大見出し（改行は \\n）<input type="text" id="sc-${ep.id}-${i}" data-sc="${ep.id}" data-i="${i}" data-k="caption" value="${esc(s.caption)}"></label>
-          <label class="f">根拠カード（ID を読点で区切る）<input type="text" id="sd-${ep.id}-${i}" data-sc="${ep.id}" data-i="${i}" data-k="cards" value="${esc((s.cards || []).join("、"))}"></label>
-          <label class="f">字幕<textarea id="sn-${ep.id}-${i}" data-sc="${ep.id}" data-i="${i}" data-k="narration" style="min-height:70px">${esc(s.narration)}</textarea></label>
-          <label class="f">読み上げ（略語はカタカナ）<textarea id="ss-${ep.id}-${i}" data-sc="${ep.id}" data-i="${i}" data-k="speech" style="min-height:70px">${esc(s.speech)}</textarea></label>
-          <label class="f">絵の文字（big・label・ratio・marks）<input type="text" id="sx-${ep.id}-${i}" data-sc="${ep.id}" data-i="${i}" data-k="extra" value="${esc(s.big || s.label || s.ratio || s.marks || "")}"></label>
-          <label class="f">項目（checklist・compare。読点で区切る）<input type="text" id="sp-${ep.id}-${i}" data-sc="${ep.id}" data-i="${i}" data-k="points" value="${esc((s.points || []).join("、"))}"></label>
+          <label class="f">大見出し（改行は \\n）<input type="text" id="sc-${esc(ep.id)}-${i}" data-sc="${esc(ep.id)}" data-i="${i}" data-k="caption" value="${esc(s.caption)}"></label>
+          <label class="f">根拠カード（ID を読点で区切る）<input type="text" id="sd-${esc(ep.id)}-${i}" data-sc="${esc(ep.id)}" data-i="${i}" data-k="cards" value="${esc((s.cards || []).join("、"))}"></label>
+          <label class="f">字幕<textarea id="sn-${esc(ep.id)}-${i}" data-sc="${esc(ep.id)}" data-i="${i}" data-k="narration" style="min-height:70px">${esc(s.narration)}</textarea></label>
+          <label class="f">読み上げ（略語はカタカナ）<textarea id="ss-${esc(ep.id)}-${i}" data-sc="${esc(ep.id)}" data-i="${i}" data-k="speech" style="min-height:70px">${esc(s.speech)}</textarea></label>
+          <label class="f">絵の文字（big・label・ratio・marks）<input type="text" id="sx-${esc(ep.id)}-${i}" data-sc="${esc(ep.id)}" data-i="${i}" data-k="extra" value="${esc(s.big || s.label || s.ratio || s.marks || "")}"></label>
+          <label class="f">項目（checklist・compare。読点で区切る）<input type="text" id="sp-${esc(ep.id)}-${i}" data-sc="${esc(ep.id)}" data-i="${i}" data-k="points" value="${esc((s.points || []).join("、"))}"></label>
         </div></div>`).join("")}
       ${sf(ep, "source_line", "出典の表示（改行は \\n）")}
-      <label class="f">投稿の説明文<textarea id="sdesc-${ep.id}" data-scf="${ep.id}" data-k="description">${esc(sc.description || "")}</textarea></label>`;
+      <label class="f">投稿の説明文<textarea id="sdesc-${esc(ep.id)}" data-scf="${esc(ep.id)}" data-k="description">${esc(sc.description || "")}</textarea></label>`;
   }
-  function sf(ep, k, label) { return `<label class="f">${label}<input type="text" id="sf-${ep.id}-${k}" data-scf="${ep.id}" data-k="${k}" value="${esc(ep.script[k] || "")}"></label>`; }
+  function sf(ep, k, label) { return `<label class="f">${label}<input type="text" id="sf-${esc(ep.id)}-${k}" data-scf="${esc(ep.id)}" data-k="${k}" value="${esc(ep.script[k] || "")}"></label>`; }
 
   V.review = () => {
     if (!S.episodes.some((e) => e.script)) return `<section class="panel"><h2>監修・監査</h2><p>台本ができた回から監修できます。</p></section>`;
@@ -504,23 +525,23 @@
           ${ep.semantic ? `<div class="note"><b>別のAIによる照合メモ</b><br>${esc(ep.semantic)}</div>` : ""}
           <h3 style="font-size:.95rem">監査：類似性と権利（様式4）</h3>
           <p class="muted" style="font-size:.85rem">文字の一致率だけで判断せず、元の資料を知っている人が見て、その特徴が感じ取れないかを確かめます。事実やデータが同じことは問題ではありません。</p>
-          <div style="display:grid;gap:4px">${AUDIT_ITEMS.map(([k, t]) => `<label style="display:flex;gap:8px;align-items:flex-start"><input type="checkbox" id="au-${ep.id}-${k}" data-audit="${ep.id}" data-k="${k}" ${ch[k] ? "checked" : ""}> <span>${esc(t)}</span></label>`).join("")}</div>
+          <div style="display:grid;gap:4px">${AUDIT_ITEMS.map(([k, t]) => `<label style="display:flex;gap:8px;align-items:flex-start"><input type="checkbox" id="au-${esc(ep.id)}-${k}" data-audit="${esc(ep.id)}" data-k="${k}" ${ch[k] ? "checked" : ""}> <span>${esc(t)}</span></label>`).join("")}</div>
           <div class="grid3">
-            <label class="f">監査担当<input type="text" id="au-a-${ep.id}" data-audit="${ep.id}" data-k="auditor" value="${esc(au.auditor || "")}"></label>
-            <label class="f">監査日<input type="date" id="au-d-${ep.id}" data-audit="${ep.id}" data-k="date" value="${esc(au.date || today())}"></label>
-            <label class="f">監査結果<select id="au-r-${ep.id}" data-audit="${ep.id}" data-k="result">${AUDIT_RESULTS.map(([v, t]) => `<option value="${v}" ${au.result === v ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+            <label class="f">監査担当<input type="text" id="au-a-${esc(ep.id)}" data-audit="${esc(ep.id)}" data-k="auditor" value="${esc(au.auditor || "")}"></label>
+            <label class="f">監査日<input type="date" id="au-d-${esc(ep.id)}" data-audit="${esc(ep.id)}" data-k="date" value="${esc(au.date || today())}"></label>
+            <label class="f">監査結果<select id="au-r-${esc(ep.id)}" data-audit="${esc(ep.id)}" data-k="result">${AUDIT_RESULTS.map(([v, t]) => `<option value="${v}" ${au.result === v ? "selected" : ""}>${t}</option>`).join("")}</select></label>
           </div>
           ${au.result === "return" ? '<p class="note warn">差し戻し：似ている箇所を削る、新しく作り直す、引用の要件を満たす形にする、許諾を得る、のどれかで直してから、もう一度監査してください。</p>' : ""}
           ${au.result === "legal" ? '<p class="note ng">法務確認へ回す：所属機関の法務・知財担当か弁護士の確認を受けるまで、公開しないでください。</p>' : ""}
           <h3 style="font-size:.95rem">承認</h3>
           <div class="grid3">
-            <label class="f">監修者<input type="text" id="ap-r-${ep.id}" data-ap="${ep.id}" data-k="reviewer" value="${esc(ap.reviewer || S.project.supervisor || "")}"></label>
-            <label class="f">承認日<input type="date" id="ap-d-${ep.id}" data-ap="${ep.id}" data-k="date" value="${esc(ap.date || today())}"></label>
-            <label class="f">コメント<input type="text" id="ap-c-${ep.id}" data-ap="${ep.id}" data-k="comment" value="${esc(ap.comment || "")}"></label>
+            <label class="f">監修者<input type="text" id="ap-r-${esc(ep.id)}" data-ap="${esc(ep.id)}" data-k="reviewer" value="${esc(ap.reviewer || S.project.supervisor || "")}"></label>
+            <label class="f">承認日<input type="date" id="ap-d-${esc(ep.id)}" data-ap="${esc(ep.id)}" data-k="date" value="${esc(ap.date || today())}"></label>
+            <label class="f">コメント<input type="text" id="ap-c-${esc(ep.id)}" data-ap="${esc(ep.id)}" data-k="comment" value="${esc(ap.comment || "")}"></label>
           </div>
           <div class="row">
-            ${approved(ep) ? `<button class="b warn" data-act="unapprove" data-ep="${ep.id}" type="button">承認を取り消す</button>` : `<button class="b primary" data-act="approve" data-ep="${ep.id}" type="button" ${bad || !auOk ? "disabled" : ""}>承認する</button>`}
-            <button class="b" data-act="packet" data-ep="${ep.id}" type="button">監修・監査用の資料を書き出す</button>
+            ${approved(ep) ? `<button class="b warn" data-act="unapprove" data-ep="${esc(ep.id)}" type="button">承認を取り消す</button>` : `<button class="b primary" data-act="approve" data-ep="${esc(ep.id)}" type="button" ${bad || !auOk ? "disabled" : ""}>承認する</button>`}
+            <button class="b" data-act="packet" data-ep="${esc(ep.id)}" type="button">監修・監査用の資料を書き出す</button>
             ${bad ? '<span class="muted" style="font-size:.85rem">自動照合の不合格を直してから承認できます</span>' : !auOk ? '<span class="muted" style="font-size:.85rem">監査の6項目、監査担当、結果（承認か条件付き承認）がそろうと承認できます</span>' : ""}
           </div></section>`;
       }).join("");
@@ -542,13 +563,13 @@
       <div class="tabs" role="tablist">${[["none", "字幕のみ（音声なし）"], ["upload", "音声ファイルを使う"], ["google", "クラウドの音声合成"], ["browser", "ブラウザで試聴"]].map(([k, t]) => `<button role="tab" type="button" data-act="tts-tab" data-tab="${k}" aria-selected="${S.tts.mode === k}">${t}</button>`).join("")}</div>
       ${S.tts.mode === "none" ? '<p>音声を入れずに書き出します。場面の長さは読む速さ（1秒7.5字）から見積もります。</p>' : ""}
       ${S.tts.mode === "upload" ? `<p>場面ごとの音声ファイル（WAV・MP3 など）を選んでください。自分の声の録音や、別のソフトで作った音声を使えます。</p>
-        <div class="grid2">${ep.script.scenes.map((s, i) => `<label class="f">場面${i + 1}<span class="h">${esc((s.speech || s.narration || "").slice(0, 40))}</span><input type="file" accept="audio/*" data-audio="${ep.id}" data-i="${i}" id="au-${ep.id}-${i}"></label>`).join("")}</div>` : ""}
+        <div class="grid2">${ep.script.scenes.map((s, i) => `<label class="f">場面${i + 1}<span class="h">${esc((s.speech || s.narration || "").slice(0, 40))}</span><input type="file" accept="audio/*" data-audio="${esc(ep.id)}" data-i="${i}" id="au-${esc(ep.id)}-${i}"></label>`).join("")}</div>` : ""}
       ${S.tts.mode === "google" ? `<p>Google Cloud Text-to-Speech で、場面ごとの読み上げを作ります（有料。少量なら無料枠に収まることがあります）。API キーは保存せず、このページを閉じると消えます。</p>
         <div class="grid3"><label class="f">API キー<input type="password" id="tts-key" autocomplete="off" value="${esc(apiKey)}"></label>
         ${sel("tts.voice", "声", [["ja-JP-Neural2-B", "女性 Neural2-B"], ["ja-JP-Neural2-C", "男性 Neural2-C"], ["ja-JP-Neural2-D", "男性 Neural2-D"], ["ja-JP-Wavenet-A", "女性 Wavenet-A"]])}
         ${fld("tts.rate", "話す速さ", "1.0 が標準", "number", 'step="0.05" min="0.7" max="1.4"')}</div>
-        <div class="row"><button class="b primary" data-act="tts-google" data-ep="${ep.id}" type="button">音声を作る</button></div>` : ""}
-      ${S.tts.mode === "browser" ? `<p>ブラウザの読み上げで、台本の聞こえ方を確かめます。この音声は動画に録音できません。動画に入れるときは、ほかの方法を使ってください。</p><div class="row"><button class="b" data-act="speak" data-ep="${ep.id}" type="button">読み上げる</button><button class="b" data-act="speak-stop" type="button">止める</button></div>` : ""}
+        <div class="row"><button class="b primary" data-act="tts-google" data-ep="${esc(ep.id)}" type="button">音声を作る</button></div>` : ""}
+      ${S.tts.mode === "browser" ? `<p>ブラウザの読み上げで、台本の聞こえ方を確かめます。この音声は動画に録音できません。動画に入れるときは、ほかの方法を使ってください。</p><div class="row"><button class="b" data-act="speak" data-ep="${esc(ep.id)}" type="button">読み上げる</button><button class="b" data-act="speak-stop" type="button">止める</button></div>` : ""}
       <p class="note">ナレーションにも権利があります。自分以外の人の声を録音して使うときは、その人の同意を得てください。音声合成サービスは、一般公開や商用での利用が利用規約で認められているかを確かめてください。音楽（BGM）はこのツールでは入れません。</p>
       <p class="muted" style="font-size:.85rem">${au ? "音声：" + au.filter(Boolean).length + "/" + ep.script.scenes.length + " 場面" : "音声：なし"}</p>
     </section>
@@ -561,7 +582,7 @@
           <p class="num" id="vinfo"></p>
           <label class="f" style="display:flex;gap:8px;align-items:center;font-weight:400"><input type="checkbox" id="ui.reviewMode" data-bind="ui.reviewMode" ${S.ui.reviewMode ? "checked" : ""}> 監修用（画面下に根拠カードの ID を出す）</label>
           ${approved(ep) ? "" : '<p class="note warn">この回は未承認なので、画面右上に「監修前サンプル」と表示されます。</p>'}
-          <div class="row"><button class="b primary" data-act="record" data-ep="${ep.id}" type="button" ${mime === null ? "disabled" : ""}>動画を書き出す</button>
+          <div class="row"><button class="b primary" data-act="record" data-ep="${esc(ep.id)}" type="button" ${mime === null ? "disabled" : ""}>動画を書き出す</button>
           <span class="muted" style="font-size:.85rem">${mime === null ? "このブラウザは書き出しに対応していません" : "形式：" + (mime.includes("mp4") ? "MP4" : "WebM（投稿先が MP4 のみなら「AIに頼む」→「MP4 に変換」）")}</span></div>
           <div class="progress" aria-hidden="true"><i id="rec-bar"></i></div>
           <p class="muted" style="font-size:.85rem">書き出しは実際の長さの時間がかかります。終わるまでこのタブを前面に出したままにしてください。</p>
@@ -644,7 +665,7 @@
     </section>
     <section class="panel"><h3>投稿の説明文</h3>
       <div class="tabs" role="tablist">${[["youtube", "YouTube"], ["tiktok", "TikTok"], ["instagram", "Instagram"], ["x", "X"]].map(([k, t]) => `<button role="tab" type="button" data-act="plat" data-tab="${k}" aria-selected="${plat === k}">${t}</button>`).join("")}</div>
-      ${eps.map((ep) => `<div class="prompt"><h3 style="font-size:.95rem">${esc(ep.title)} ${approved(ep) ? "" : '<span class="chip warn">未承認</span>'}</h3><pre id="desc-${ep.id}">${esc(description(ep, plat))}</pre><div class="row"><button class="b small" data-act="copy" data-src="desc-${ep.id}" type="button">コピー</button></div></div>`).join("") || '<p class="muted">台本ができた回がありません。</p>'}
+      ${eps.map((ep) => `<div class="prompt"><h3 style="font-size:.95rem">${esc(ep.title)} ${approved(ep) ? "" : '<span class="chip warn">未承認</span>'}</h3><pre id="desc-${esc(ep.id)}">${esc(description(ep, plat))}</pre><div class="row"><button class="b small" data-act="copy" data-src="desc-${esc(ep.id)}" type="button">コピー</button></div></div>`).join("") || '<p class="muted">台本ができた回がありません。</p>'}
       <p class="note">YouTube と TikTok では、AI で作った内容であることを投稿時の設定でも示してください（各サービスの「改変・合成コンテンツ」などの項目）。</p>
     </section>
     <section class="panel"><h3>シリーズ一式と記録の書き出し</h3>
@@ -730,9 +751,10 @@
   function importScript(ep, text) {
     let t = String(text || "").trim(); const m = t.match(/```(?:json)?\s*\n([\s\S]*?)```/); if (m) t = m[1];
     const a = t.indexOf("{"), b = t.lastIndexOf("}"); if (a < 0 || b < a) throw new Error("JSON が見つかりませんでした。AI の答えを全部貼り付けてください。");
-    const sc = JSON.parse(t.slice(a, b + 1));
+    const sc = safeParse(t.slice(a, b + 1));
     if (!Array.isArray(sc.scenes) || !sc.scenes.length) throw new Error("scenes（場面の並び）がありません。");
-    sc.scenes.forEach((s) => { s.cards = Array.isArray(s.cards) ? s.cards : []; if (!s.speech) s.speech = s.narration; });
+    sc.scenes = sc.scenes.filter((s) => s && typeof s === "object");
+    sc.scenes.forEach((s) => { s.cards = Array.isArray(s.cards) ? s.cards.filter((y) => typeof y === "string") : []; if (typeof s.visual !== "string" || !SAFE_VIS.test(s.visual)) s.visual = "question"; if (!s.speech) s.speech = s.narration; });
     ep.script = sc; ep.aiOriginal = JSON.stringify(sc); S.ui.scriptTab[ep.id] = "edit";
     logAI({ step: "台本", service: S.ui.aiService || "（未記入）", purpose: "台本の下書き（" + ep.title + "）", detail: "依頼文：スタジオの台本用の依頼文（事実カード " + ep.cards.join("、") + "、学習目標、構成メモ）" });
     const bad = hardFail(runChecks(ep)).length; toast(bad ? "読み込みました。照合で " + bad + " 件の不合格があります" : "読み込みました。照合はすべて合格です");
@@ -764,7 +786,9 @@
     L.push("", "## 監修と承認", "", "- 監修者：" + (ap.reviewer || ""), "- 承認日：" + (ap.date || ""), "- コメント：" + (ap.comment || ""), "- 状態：" + (approved(ep) ? "承認済み" : "未承認"), "", "---", "クリーンルーム動画スタジオで作成");
     return L.join("\n");
   }
-  const csv = (rows) => "﻿" + rows.map((r) => r.map((x) => '"' + String(x == null ? "" : x).replace(/"/g, '""') + '"').join(",")).join("\r\n");
+  // 表計算ソフトで開いたときに数式として実行されないよう、= + - @ などで始まるセルの先頭に ' を付ける（CSV インジェクション対策）
+  const cell = (x) => { let v = String(x == null ? "" : x); if (/^[=+\-@\t\r]/.test(v)) v = "'" + v; return '"' + v.replace(/"/g, '""') + '"'; };
+  const csv = (rows) => "﻿" + rows.map((r) => r.map(cell).join(",")).join("\r\n");
   function form1() {
     const eps = S.episodes;
     return csv([["教材管理番号", "事実ID", "中立的な事実・命題", "一次資料（著者・題名・年・DOI/URL）", "DOI", "ライセンス", "利用根拠", "対象・条件・単位・時点", "一致・不一致／限界", "教材での使用箇所", "確認者", "確認日", "照合状態"]].concat(
@@ -922,7 +946,7 @@
       catch (e) { toast("この音声ファイルは読めませんでした（WAV か MP3 を使ってください）"); }
     }
     else if (el.id === "file-import-project" && el.files[0]) {
-      try { const d = JSON.parse(await el.files[0].text()); if (!d.project || !Array.isArray(d.cards)) throw new Error(); S = Object.assign(fresh(), d); await restoreCustom(); toast("作業を読み込みました"); render(); }
+      try { const d = sanitize(safeParse(await el.files[0].text())); if (!d || !d.project || typeof d.project !== "object") throw new Error(); S = Object.assign(fresh(), d); S.ui = Object.assign(fresh().ui, S.ui || {}); S.project = Object.assign(fresh().project, S.project || {}); S.project.risks = Object.assign(fresh().project.risks, S.project.risks || {}); S.publish = Object.assign(fresh().publish, S.publish || {}); S.publish.checks = S.publish.checks || {}; await restoreCustom(); toast("作業を読み込みました"); render(); }
       catch (e) { toast("作業ファイルとして読めませんでした"); }
       el.value = "";
     }
