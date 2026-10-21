@@ -7,7 +7,7 @@ window.CRVS_CONFIG = {
   version: "1.1.1",
   developer: "三原 弘（札幌医科大学 医療人育成センター）",
   repository: "https://github.com/hm-cmed/cleanroom-video-studio",
-  sourceRepository: "https://github.com/hm-cmed/cleanroom-gi-facts",
+  sourceRepository: "https://github.com/hm-cmed/cleanroom-facts",
   grants: [
     { funder: "公益財団法人 中山隼雄科学技術文化財団", title: "", number: "" },
     { funder: "公益財団法人 医学教育振興財団", title: "", number: "" },

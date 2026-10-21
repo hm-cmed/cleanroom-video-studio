@@ -88,7 +88,7 @@
 
 三原 弘（札幌医科大学 医療人育成センター）
 
-事実カードの作り方と照合の手順は、[cleanroom-gi-facts](https://github.com/hm-cmed/cleanroom-gi-facts) で消化器領域の事実カード（約860件）を作った経験にもとづいています。
+事実カードの作り方と照合の手順は、[cleanroom-facts](https://github.com/hm-cmed/cleanroom-facts) で消化器領域の事実カード（約860件）を作った経験にもとづいています。
 
 ## ライセンス
 
