@@ -449,13 +449,30 @@
     return Object.assign({}, S.project, { sourceRepo: CFG.sourceRepository, repo: CFG.repository, ttsPlan: S.tts.mode === "google" ? "Google Cloud Text-to-Speech" : "" });
   }
 
+  /* 不合格の項目ごとの直し方（初心者向けの短い説明） */
+  function fixHint(x) {
+    if (/^長さ/.test(x.k)) return "「読み上げ」の文を短く（長く）すると変わります。音声を作った後なら、音声も作り直してください。";
+    if (/字幕の速さ/.test(x.k)) return "字幕の字数 ÷ 場面の秒数です。「字幕」の文字を減らしてください（「読み上げ」を短くすると、場面が短くなり速さは上がります）。";
+    if (/数字の裏づけ/.test(x.k)) return "字幕の数字が根拠カードにありません。カードの数字に合わせるか、その数字のあるカードを根拠に足してください。";
+    if (/禁止表現/.test(x.k)) return "企画で決めた禁止表現が入っています。言い換えてください。";
+    if (/根拠カードあり/.test(x.k)) return "「根拠カード」の欄にカードの ID を入れてください。";
+    if (/基準の名前/.test(x.k)) return "字幕に基準やガイドラインの名前を入れるか、「基準名」の欄に書いてください。";
+    if (/締めの場面/.test(x.k)) return "最後の場面の役割を「締め」にしてください。";
+    if (/出典の表示/.test(x.k)) return "「出典の表示」の欄を埋めてください。";
+    return "";
+  }
   function checksHtml(ep) {
     const r = ep.script ? runChecks(ep) : [];
     if (!r.length) return "";
     const bad = hardFail(r), soft = r.filter((x) => !x.ok && x.soft);
+    const au = audioStore[ep.id], hasAu = au && au.some(Boolean);
     return `<details ${bad.length ? "open" : ""}><summary>${bad.length ? `<span class="chip ng">自動照合：不合格 ${bad.length}件</span>` : '<span class="chip ok">自動照合：合格</span>'} ${soft.length ? `<span class="chip warn">確認 ${soft.length}件</span>` : ""}</summary>
-      <ul class="checks">${r.filter((x) => !x.ok).map((x) => `<li>${x.soft ? "△" : "×"} 場面${esc(x.n)}　${esc(x.k)}　<span class="muted">${esc(x.d)}</span></li>`).join("") || "<li>すべて合格</li>"}</ul>
-      <p class="muted" style="font-size:.8rem">△はカードの文献照合（draft → verified_sources）が済むと消えます。公開前に「AIに頼む」→「文献番号とライセンスの照合」を行ってください。</p></details>`;
+      <ul class="checks">${r.filter((x) => !x.ok).map((x) => `<li>${x.soft ? "△" : "×"} 場面${esc(x.n)}　${esc(x.k)}　<span class="muted">${esc(x.d)}</span>${!x.soft && fixHint(x) ? `<div class="muted" style="font-size:.8rem">直し方：${esc(fixHint(x))}</div>` : ""}</li>`).join("") || "<li>すべて合格</li>"}</ul>
+      <p class="muted" style="font-size:.8rem">△はカードの文献照合（draft → verified_sources）が済むと消えます。公開前に「AIに頼む」→「文献番号とライセンスの照合」を行ってください。</p></details>
+      <div class="row"><button class="b small primary" data-act="recheck" data-ep="${esc(ep.id)}" type="button">もう一度照合する</button>
+        ${hasAu ? `<button class="b small" data-act="drop-audio" data-ep="${esc(ep.id)}" type="button">作った音声を外して、文の長さで計算する</button>` : ""}
+        <span class="muted" style="font-size:.8rem">台本を直すと約1秒後に自動で照合し直します。うまく反映されないときはボタンを押してください。</span></div>
+      ${hasAu ? '<p class="note" style="font-size:.8rem">この回は音声を作ってあるので、長さと字幕の速さは<b>作った音声の秒数</b>で計算しています。「読み上げ」を直した場面の音声は自動で外し、文の長さからの推定に切り替えます。直し終わったら、音声を作り直してください。</p>' : ""}`;
   }
 
   function editedScenes(ep) {
@@ -518,6 +535,7 @@
         const auOk = auditOk(ep);
         return `<section class="panel">
           <div class="row" style="justify-content:space-between"><h3>${esc(ep.title)}</h3><div class="row">${bad ? `<span class="chip ng">照合 不合格 ${bad}件</span>` : '<span class="chip ok">照合 合格</span>'}${auOk ? '<span class="chip ok">監査 済</span>' : '<span class="chip warn">監査 未</span>'}${approved(ep) ? '<span class="chip ok">承認済み</span>' : '<span class="chip warn">未承認</span>'}</div></div>
+          ${bad ? `<div class="note warn"><b>自動照合の不合格があるため、まだ承認できません。</b>${checksHtml(ep)}<div class="row"><button class="b small" data-act="goto-script" data-ep="${esc(ep.id)}" type="button">台本で直す</button></div></div>` : ""}
           <h3 style="font-size:.95rem">監修：字幕と根拠</h3>
           <div class="tablewrap"><table><thead><tr><th>場面</th><th>字幕</th><th>根拠カードの内容</th></tr></thead><tbody>
           ${ep.script.scenes.map((s, i) => `<tr><td class="mono">${i + 1}</td><td style="min-width:200px">${esc(s.narration)}</td><td style="min-width:260px">${(s.cards || []).map((id) => cm[id] ? `<b class="mono">${esc(id)}</b> ${esc(cm[id].assertion.plain_statement_ja)}<div class="muted" style="font-size:.8rem">${esc(cm[id].provenance.source)}</div>` : `<span class="chip ng">${esc(id)} なし</span>`).join("<hr style='border:0;border-top:1px solid var(--line)'>") || '<span class="muted">（締めの言葉）</span>'}</td></tr>`).join("")}
@@ -542,7 +560,7 @@
           <div class="row">
             ${approved(ep) ? `<button class="b warn" data-act="unapprove" data-ep="${esc(ep.id)}" type="button">承認を取り消す</button>` : `<button class="b primary" data-act="approve" data-ep="${esc(ep.id)}" type="button" ${bad || !auOk ? "disabled" : ""}>承認する</button>`}
             <button class="b" data-act="packet" data-ep="${esc(ep.id)}" type="button">監修・監査用の資料を書き出す</button>
-            ${bad ? '<span class="muted" style="font-size:.85rem">自動照合の不合格を直してから承認できます</span>' : !auOk ? '<span class="muted" style="font-size:.85rem">監査の6項目、監査担当、結果（承認か条件付き承認）がそろうと承認できます</span>' : ""}
+            ${bad ? '<span class="muted" style="font-size:.85rem">自動照合の不合格を直してから承認できます（下の一覧と「台本で直す」）</span>' : !auOk ? '<span class="muted" style="font-size:.85rem">監査の6項目、監査担当、結果（承認か条件付き承認）がそろうと承認できます</span>' : ""}
           </div></section>`;
       }).join("");
   };
@@ -863,6 +881,14 @@
     try {
       if (act === "load-sample") loadSample();
       else if (act === "copy") copy($("#" + b.dataset.src).textContent, b);
+      else if (act === "recheck" || act === "drop-audio") {
+        const ep = epOf(b.dataset.ep);
+        if (act === "drop-audio") delete audioStore[ep.id];
+        const pos = scrollY; render(); scrollTo(0, pos);
+        const bad = hardFail(runChecks(ep)).length;
+        toast((act === "drop-audio" ? "音声を外しました。" : "") + (bad ? "照合しました。不合格が " + bad + " 件あります" : "照合しました。すべて合格です"));
+      }
+      else if (act === "goto-script") { S.ui.scriptTab[b.dataset.ep] = "edit"; go("script"); }
       else if (act === "cards-tab") { S.ui.cardsTab = b.dataset.tab; render(); }
       else if (act === "cards-import") importCards($("#cards-paste").value);
       else if (act === "del-card") { S.cards = S.cards.filter((c) => c.id !== b.dataset.id); render(); }
@@ -923,6 +949,7 @@
       else if (k === "points") s.points = el.value.split(/[、,]/).map((x) => x.trim()).filter(Boolean);
       else if (k === "extra") { const v = el.value; if (s.visual === "big_number") s.big = v; else if (s.visual === "people") s.ratio = v; else if (s.visual === "calendar") s.marks = v; else s.label = v; }
       else s[k] = el.value;
+      if (k === "speech" && audioStore[ep.id] && audioStore[ep.id][+el.dataset.i]) { audioStore[ep.id][+el.dataset.i] = null; toast("場面" + (+el.dataset.i + 1) + "の音声は文と合わなくなったので外しました。直し終わったら音声を作り直してください"); }
       save(); clearTimeout(window.__chk); window.__chk = setTimeout(() => { const pos = scrollY; const id = document.activeElement && document.activeElement.id; render(); scrollTo(0, pos); if (id && $("#" + CSS.escape(id))) { const n = $("#" + CSS.escape(id)); n.focus(); if (n.setSelectionRange && n.value != null) { try { n.setSelectionRange(n.value.length, n.value.length); } catch (e) { } } } }, 900);
     } else if (el.dataset.scf) { const ep = S.episodes.find((e) => e.id === el.dataset.scf); ep.script[el.dataset.k] = el.value; save(); }
     else if (el.dataset.ap) { const ep = S.episodes.find((e) => e.id === el.dataset.ap); ep.approval = ep.approval || {}; ep.approval[el.dataset.k] = el.value; save(); }
