@@ -26,7 +26,14 @@ window.CRVS_CONFIG = {
       number: "2025–2026年度 助成",
       numberEn: "Research Grant, 2025–2026"
     },
-    { funder: "札幌医科大学", funderEn: "Sapporo Medical University", title: "", number: "" }
+    {
+      funder: "札幌医科大学",
+      funderEn: "Sapporo Medical University",
+      title: "北海道医療人教育施設とのオンライン連携システムの構築",
+      titleEn: "Development of an Online Collaboration System with Healthcare Professional Education Institutions in Hokkaido",
+      number: "2026年度 札幌医科大学研究・学術支援事業（支援事業）学術振興事業 助成",
+      numberEn: "FY2026 Research and Academic Support Program, Academic Promotion Grant"
+    }
   ],
   license: {
     code: "MIT License",

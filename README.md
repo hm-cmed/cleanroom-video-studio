@@ -99,7 +99,8 @@
   研究課題「生成AIを活用したゲーム性の高い医学教育コンテンツの開発と公開」（研究代表者：三原 弘）
 - 公益財団法人 医学教育振興財団　2025–2026年度 助成
   研究課題「動画生成AIによって生成された医療教育用シナリオ動画によるワークショップ型授業が医療系学生の自己評価に与える影響」
-- 札幌医科大学
+- 札幌医科大学　2026年度 札幌医科大学研究・学術支援事業（支援事業）学術振興事業 助成
+  研究課題「北海道医療人教育施設とのオンライン連携システムの構築」
 
 ### Acknowledgments
 
@@ -107,9 +108,9 @@ This work was partly supported by the following grants:
 
 - Hayao Nakayama Foundation for Science & Technology and Culture, FY2025 Research Grant (A), Priority Research (A-1) "Games that Enhance Humanity and Sociality 2" and 2026 Workshop Extension Grant: "Development and Public Release of Highly Game-Based Medical Education Content Using Generative AI" (Principal Investigator: Hiroshi Mihara)
 - Japan Medical Education Foundation (JMEF), Research Grant 2025–2026: "The Impact of Workshop-Based Classes Using AI-Generated Medical Education Scenario Videos on Medical Students' Self-Assessment"
-- Sapporo Medical University
+- Sapporo Medical University, FY2026 Research and Academic Support Program, Academic Promotion Grant: "Development of an Online Collaboration System with Healthcare Professional Education Institutions in Hokkaido"
 
-The foundation names follow each foundation's website. The English names of the grant programs and the English title of the Hayao Nakayama Foundation project are translations, as no official English versions are published.
+The foundation names follow each foundation's website. The English names of the grant programs and the English titles of the Hayao Nakayama Foundation and Sapporo Medical University projects are translations, as no official English versions are published.
 
 ## 開発
 
