@@ -95,9 +95,21 @@
 
 本レポジトリ（ブラウザ版のスタジオ、`local/`、`agent-kit/`）は、次の助成の一部を利用して制作しました。
 
-- 公益財団法人 中山隼雄科学技術文化財団
-- 公益財団法人 医学教育振興財団
+- 公益財団法人 中山隼雄科学技術文化財団　2025年度助成研究（A）重点研究（A-1）「人間性・社会性を高めるゲーム2」、2026年ワークショップ延長助成
+  研究課題「生成AIを活用したゲーム性の高い医学教育コンテンツの開発と公開」（研究代表者：三原 弘）
+- 公益財団法人 医学教育振興財団　2025–2026年度 助成
+  研究課題「動画生成AIによって生成された医療教育用シナリオ動画によるワークショップ型授業が医療系学生の自己評価に与える影響」
 - 札幌医科大学
+
+### Acknowledgments
+
+This work was partly supported by the following grants:
+
+- Hayao Nakayama Foundation for Science & Technology and Culture, FY2025 Research Grant (A), Priority Research (A-1) "Games that Enhance Humanity and Sociality 2" and 2026 Workshop Extension Grant: "Development and Public Release of Highly Game-Based Medical Education Content Using Generative AI" (Principal Investigator: Hiroshi Mihara)
+- Japan Medical Education Foundation (JMEF), Research Grant 2025–2026: "The Impact of Workshop-Based Classes Using AI-Generated Medical Education Scenario Videos on Medical Students' Self-Assessment"
+- Sapporo Medical University
+
+The foundation names follow each foundation's website. The English names of the grant programs and the English title of the Hayao Nakayama Foundation project are translations, as no official English versions are published.
 
 ## 開発
 
