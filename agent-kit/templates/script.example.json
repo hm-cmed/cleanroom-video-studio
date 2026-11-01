@@ -1,0 +1,27 @@
+{
+  "title": "見本：機能性ディスペプシアとは",
+  "slug": "fd-what-is",
+  "medical_content": true,
+  "medical_review_required": true,
+  "beats": [
+    {
+      "id": "hook",
+      "narration": "胃カメラで異常なし。でも胃がつらい？",
+      "speech": "胃カメラで異常なし。でも、胃がつらい？",
+      "on_screen": "異常なし、なのに",
+      "component": "question",
+      "emphasis": ["異常なし"],
+      "cards": ["GD-001"]
+    },
+    {
+      "id": "beat1",
+      "narration": "検査で原因が見つからないのに、上腹部の症状が続く病態があります。",
+      "speech": "検査で原因が見つからないのに、上腹部の症状が続く病態があります。",
+      "on_screen": "機能性ディスペプシア",
+      "component": "title-card",
+      "emphasis": ["機能性ディスペプシア"],
+      "cards": ["GD-001"]
+    }
+  ],
+  "notes": "これは形式の見本です。内容は専門家の監修を受けていません。そのまま配信しないでください。"
+}

@@ -7,6 +7,7 @@
 - ブラウザ版はビルド不要の静的ファイル（`index.html`、`app.js`、`render.js`、`prompts.js`、`config.js`、`sample.js`）。GitHub Pages でそのまま公開する。
 - 外部の読み込みは CDN の js-yaml と JSZip、Google Fonts だけ。サーバーや API キーをレポジトリに置かない。
 - `local/` は自分のパソコンで動画を一括作成する Python（Pillow・ffmpeg）。スタジオで書き出した `cards.json` と `scripts/*.json` を読む。
+- `agent-kit/` はコード生成AIに渡して、利用者のパソコンに制作パイプラインを実装させるキット。中の作業ルールは `agent-kit/AGENTS.md`。
 
 ## 守ること
 
@@ -18,3 +19,5 @@
 6. 利用者の API キーや個人情報を保存・送信しない（音声合成の API キーはメモリ上だけで使う）。
 7. 制作の手順は『著作権等に配慮した教育コンテンツ作成マニュアル』（`config.js` の `manual`）に沿わせる。マニュアルが改訂されたら、工程・チェック項目・記録様式（`app.js` の AUDIT_ITEMS、MANUAL_CHECKS、form1〜form3、finalApproval）を見直す。
 8. 画面や README に、法律事務所など第三者がツールを承認・保証しているように読める表現を入れない。
+9. 「事実カードの多くは専門家の監修前であること」「医学的内容は専門家の監修後に制作・配信すること」「利用による不利益の責任は利用者にあること」の表示（README、`DISCLAIMER.md`、画面下部、`agent-kit/`）を消さない。
+10. 第三者が権利を持つソフトウェア・フォント・音源・画像をレポジトリに同梱しない。必要なものは入手先へのリンクで示す。

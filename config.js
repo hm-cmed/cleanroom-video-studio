@@ -4,7 +4,7 @@
  */
 window.CRVS_CONFIG = {
   appName: "クリーンルーム動画スタジオ",
-  version: "1.1.1",
+  version: "1.2.0",
   developer: "三原 弘（札幌医科大学 医療人育成センター）",
   repository: "https://github.com/hm-cmed/cleanroom-video-studio",
   sourceRepository: "https://github.com/hm-cmed/cleanroom-facts",

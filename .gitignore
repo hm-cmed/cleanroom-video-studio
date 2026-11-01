@@ -1,3 +1,14 @@
 __pycache__/
 *.pyc
 out/
+
+# agent-kit：生成物・事実票のキャッシュ・素材はレポジトリに含めない
+agent-kit/out/
+agent-kit/facts_cache/
+agent-kit/assets/fonts/*
+agent-kit/assets/bgm/*
+agent-kit/assets/sfx/*
+!agent-kit/assets/**/.gitkeep
+*.mp4
+*.wav
+.venv/

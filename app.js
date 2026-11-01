@@ -225,10 +225,11 @@
   function renderFooter() {
     const g = CFG.grants.map((x) => `<li><strong>${esc(x.funder)}</strong>${x.title ? "「" + esc(x.title) + "」" : ""}${x.number ? "（" + esc(x.number) + "）" : ""}</li>`).join("");
     const m = CFG.manual;
-    $("#footer").innerHTML = `<p>本ツールの開発は、次の助成を受けて行いました。</p><ul style="margin:0;padding-left:1.2em">${g}</ul>
+    $("#footer").innerHTML = `<p>本ツールは、次の助成の一部を利用して制作しました。</p><ul style="margin:0;padding-left:1.2em">${g}</ul>
       <p>制作の手順は、${m.url ? `<a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(manualName())}</a>` : esc(manualName())}に沿っています。</p>
       <p>開発：${esc(CFG.developer)}　｜　プログラム：${esc(CFG.license.code)}、説明文と見本データ：${esc(CFG.license.content)}　｜　<a href="${esc(CFG.repository)}" target="_blank" rel="noopener">ソースコード</a>　｜　v${esc(CFG.version)}</p>
-      <p>本ツールは制作の手順を支援するもので、医学的内容の正確さや、権利侵害がないことを保証するものではなく、法律上の助言でもありません。公開する内容の最終判断は各団体の責任者・監修者が行い、高額・商用・大規模公開・権利関係が不明な案件・国外公開は、所属機関の法務・知財担当または弁護士に確認してください。</p>`;
+      <p>本ツールは制作の手順を支援するもので、医学的内容の正確さや、権利侵害がないことを保証するものではなく、法律上の助言でもありません。公開する内容の最終判断は各団体の責任者・監修者が行い、高額・商用・大規模公開・権利関係が不明な案件・国外公開は、所属機関の法務・知財担当または弁護士に確認してください。</p>
+      <p><strong>事実カードの多くは専門家の監修を受けていません。医学的内容を含む動画は、必ず専門家が監修したうえで制作・配信してください。</strong>本ツールの利用により生じたいかなる不利益についても、責任は利用者にあり、提供者は一切の責任を負いません（<a href="${esc(CFG.repository)}/blob/main/DISCLAIMER.md" target="_blank" rel="noopener">免責事項</a>）。</p>`;
   }
 
   const V = {};
@@ -870,7 +871,7 @@
     z.file("AI_RULES.md", P.agentsMemo(S.project, "other"));
     z.file("CLAUDE.md", P.agentsMemo(S.project, "claude"));
     z.file("AGENTS.md", P.agentsMemo(S.project, "codex"));
-    z.file("README.txt", [S.project.seriesTitle + "　版 " + (S.project.edition || ""), "", "クリーンルーム動画スタジオで作ったシリーズ一式です。", "scripts/：台本（JSON）　cards.json：事実カード　descriptions/：投稿の説明文", "records/：記録様式（様式1〜4、AI利用記録、最終承認）", "", "準拠：" + manualName(), "", "本ツールの開発は、" + CFG.grants.map((g) => g.funder).join("、") + "の助成を受けて行いました。", CFG.repository].join("\n"));
+    z.file("README.txt", [S.project.seriesTitle + "　版 " + (S.project.edition || ""), "", "クリーンルーム動画スタジオで作ったシリーズ一式です。", "scripts/：台本（JSON）　cards.json：事実カード　descriptions/：投稿の説明文", "records/：記録様式（様式1〜4、AI利用記録、最終承認）", "", "準拠：" + manualName(), "", "本ツールは、" + CFG.grants.map((g) => g.funder).join("、") + "の助成の一部を利用して制作しました。", "事実カードの多くは専門家の監修を受けていません。医学的内容を含む動画は、必ず専門家が監修したうえで制作・配信してください。利用により生じた不利益の責任は利用者にあり、提供者は一切の責任を負いません。", CFG.repository].join("\n"));
     download("series_package_v" + (S.project.edition || "1") + ".zip", await z.generateAsync({ type: "blob" }));
   }
 
