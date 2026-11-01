@@ -154,8 +154,10 @@
       if (s.kind !== "closing") res.push({ n, k: "根拠カードあり", ok: ids.length > 0, d: ids.join("、") || "なし" });
       const corpus = toHalf(ids.filter((id) => cm[id]).map((id) => { const a = cm[id].assertion; return a.plain_statement_ja + JSON.stringify(a.condition || "") + (a.common_misconception || ""); }).join(" "));
       (text.match(/\d+(?:\.\d+)?/g) || []).forEach((num) => res.push({ n, k: "数字の裏づけ", ok: corpus.includes(num), d: num }));
+      const pic = toHalf(["label", "sub", "big"].map((k) => s[k] || "").join("") + (s.points || []).join(""));  // 絵の中に描く文字
+      if (ids.some((id) => cm[id])) ((toHalf(s.caption || "") + pic).match(/\d+(?:\.\d+)?/g) || []).filter((num, j, a) => a.indexOf(num) === j && !(text.match(/\d+(?:\.\d+)?/g) || []).includes(num)).forEach((num) => res.push({ n, k: "数字の裏づけ（字幕・絵の文字）", ok: corpus.includes(num), d: num }));
       if (s.kind === "misconception") res.push({ n, k: "誤解の欄に対応", ok: ids.some((id) => cm[id] && cm[id].assertion.common_misconception), d: "" });
-      const hit = (pj.banned || []).filter((b) => b && (s.narration + (s.caption || "") + (s.speech || "")).includes(b));
+      const hit = (pj.banned || []).filter((b) => b && (s.narration + (s.caption || "") + (s.speech || "") + pic).includes(b));
       res.push({ n, k: "禁止表現なし", ok: !hit.length, d: hit.join("、") || "—" });
       if (/基準|目安/.test(text)) res.push({ n, k: "基準の名前を明示", ok: /Rome|ガイドライン|基準\s*（|GL/.test(text) || !!sc.standard && text.includes(String(sc.standard).replace(/（.*$/, "")), d: "" });
       const cps = (s.narration || "").length / durs[i];
@@ -179,7 +181,7 @@
     const sent = (t) => String(t).split("。")[0] + "。";
     const scenes = [{ visual: "question", caption: (ep.title || "よくある誤解").slice(0, 20), narration: mis ? "「" + mis + "」と思っていませんか？" : "", speech: mis ? mis + "と思っていませんか？" : "", cards: [first.id], kind: "misconception" }];
     cs.forEach((c) => scenes.push({ visual: "checklist", points: [], caption: String(c.subdomain || "").slice(0, 10), narration: sent(c.assertion.plain_statement_ja), speech: sent(c.assertion.plain_statement_ja), cards: [c.id], kind: "fact" }));
-    scenes.push({ visual: "consult", label: "専門医に相談", caption: "気になるときは\n医療機関へ", narration: "症状が続くときは、医療機関に相談してください。", speech: "症状が続くときは、医療機関に相談してください。", cards: [], kind: "closing" });
+    scenes.push({ visual: "consult", label: "医療機関に相談", caption: "気になるときは\n医療機関へ", narration: "症状が続くときは、医療機関に相談してください。", speech: "症状が続くときは、医療機関に相談してください。", cards: [], kind: "closing" });
     const src = [...new Set(cs.map((c) => (c.provenance.source || "").split(".")[0]))].slice(0, 2).join("／");
     return { theme: ep.title, disease: S.project.domain || "", standard: "", scenes, source_line: "出典：" + src, description: "" };
   }

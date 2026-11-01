@@ -41,15 +41,17 @@ def wrap(text, font, maxw, draw):
 def canvas():
     im = Image.new("RGBA", (1200, 1200), (0, 0, 0, 0)); return im, ImageDraw.Draw(im)
 
+# 絵の中の文字は台本の場面から渡す（label・sub・points など）。書かなければ文字なし。
+# 特定の病気やテーマの文言をここに固定で書かない（render.js も同じにする）。
 def ill_question(s=None):
     im, d = canvas()
     d.rounded_rectangle((180, 260, 760, 1000), 48, fill=WHITE, outline=INK, width=10)
     d.rounded_rectangle((360, 210, 580, 310), 30, fill=ACC, outline=INK, width=10)
-    f = F(BOLD, 64); d.text((470, 400), "検査結果", font=f, fill=INK, anchor="mm")
+    if (s or {}).get("label"): d.text((470, 400), s["label"], font=F(BOLD, 64), fill=INK, anchor="mm")
     for y in (520, 620, 720):
         d.line((260, y, 520, y), fill=(190, 198, 204), width=12)
         d.text((640, y), "✓", font=F(BOLD, 60), fill=ACC, anchor="mm")
-    d.text((470, 880), "異常なし", font=F(BOLD, 76), fill=ACC, anchor="mm")
+    if (s or {}).get("sub"): d.text((470, 880), s["sub"], font=F(BOLD, 72), fill=ACC, anchor="mm")
     d.ellipse((720, 300, 1080, 660), fill=ACC2)
     d.text((900, 470), "？", font=F(BLACK, 240), fill=WHITE, anchor="mm")
     return im
@@ -82,7 +84,7 @@ def ill_calendar(s=None):
     d.rounded_rectangle((170, 200, 1030, 1060), 40, fill=WHITE, outline=INK, width=10)
     d.rounded_rectangle((170, 200, 1030, 340), 40, fill=ACC)
     d.rectangle((170, 300, 1030, 340), fill=ACC)
-    d.text((600, 270), "1か月", font=F(BOLD, 70), fill=WHITE, anchor="mm")
+    if (s or {}).get("label"): d.text((600, 270), s["label"], font=F(BOLD, 70), fill=WHITE, anchor="mm")
     marked = {(1, 1), (3, 2), (5, 3)}
     for r in range(5):
         for c in range(7):
@@ -117,7 +119,7 @@ def ill_doctor(s=None):
             x = 320 + c * 210; y = 500 + r * 170
             d.rounded_rectangle((x, y, x + 140, y + 110), 14, fill=LIGHT, outline=ACC, width=6)
     d.rounded_rectangle((520, 840, 680, 1000), 12, fill=ACC2)
-    d.text((600, 1090), (s or {}).get("label") or "専門医に相談", font=F(BOLD, 64), fill=INK, anchor="mm")
+    if (s or {}).get("label"): d.text((600, 1090), s["label"], font=F(BOLD, 64), fill=INK, anchor="mm")
     return im
 
 def ill_big(s=None):

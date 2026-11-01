@@ -35,7 +35,11 @@ def content_checks(sc, cards):
         if s["kind"] == "misconception":
             mis = [cards[i]["assertion"]["common_misconception"] for i in s["cards"] if i in cards]
             r.append((n, "誤解の欄に対応", any(m for m in mis), " / ".join(map(str, mis))))
-        hit = [b for b in BANNED if b in text + s["caption"] + s.get("speech", "")]
+        pic = "".join(str(s.get(k) or "") for k in ("label", "sub", "big")) + "".join(s.get("points") or [])  # 絵の中に描く文字
+        if s["cards"] and all(i in cards for i in s["cards"]):
+            for num in sorted(set(re.findall(r"\d+", s["caption"] + pic)) - set(re.findall(r"\d+", text))):
+                r.append((n, "数字の裏づけ（字幕・絵の文字）", num in cp, num))
+        hit = [b for b in BANNED if b in text + s["caption"] + s.get("speech", "") + pic]
         r.append((n, "禁止表現なし", not hit, ",".join(hit) or "—"))
         if "基準" in text or "目安" in text:
             r.append((n, "基準の明示（Rome V／日本GL）", "Rome V" in text or "ガイドライン" in text, ""))

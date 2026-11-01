@@ -1,11 +1,11 @@
 /* AI への依頼文を組み立てる。チャットAI（調査・台本・照合・イラスト）と、コード生成AI（Claude Code / Codex / その他）の両方 */
 (function () {
   const VISUALS = {
-    question: "疑問の提示（検査結果の紙と「？」）。label に紙の見出しを書ける",
+    question: "疑問の提示（紙と「？」）。label に紙の見出し、sub に紙の下の一言（書かなければ無地）",
     brain_gut: "脳と腸の双方向の矢印",
-    calendar: "1か月のカレンダーに印。marks に印の数（1〜10）",
+    calendar: "カレンダーに印。marks に印の数（1〜10）、label に上部の見出し（例：1か月。書かなければ無地）",
     checklist: "3つまでの確認項目。points に短い文の配列",
-    consult: "医療機関の建物。label に一言（例：専門医に相談）",
+    consult: "医療機関の建物。label に一言（テーマに合わせる。例：医療機関に相談、救急車を呼ぶ。書かなければ無地）",
     big_number: "大きな数字を1つ見せる。big に短い文字列（例：週2日）",
     people: "10人の人型のうち何人かを強調。ratio に「3/10」の形",
     compare: "2つを並べて比べる（○と×）。points に2つの短い文"

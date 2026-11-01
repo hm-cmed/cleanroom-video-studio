@@ -202,6 +202,8 @@ window.CRVS_SAMPLE = {
    {
     "dur": 5,
     "visual": "question",
+    "label": "検査結果",
+    "sub": "異常なし",
     "caption": "「検査で異常なし」は\n気のせい？",
     "narration": "検査で異常がないと「気のせい」だと思っていませんか？",
     "cards": [
@@ -225,6 +227,7 @@ window.CRVS_SAMPLE = {
    {
     "dur": 10,
     "visual": "calendar",
+    "label": "1か月",
     "caption": "目安は\n月3日以上",
     "narration": "2026年の国際基準 Rome V では、腹痛かおなかの不快感が最近3か月に月平均3日以上あり、排便と関係することが目安です。",
     "cards": [

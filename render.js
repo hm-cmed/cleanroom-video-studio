@@ -25,18 +25,20 @@
     return lines;
   }
 
-  /* ---------- 挿絵（1200×1200 の座標で描く） ---------- */
+  /* ---------- 挿絵（1200×1200 の座標で描く） ----------
+     絵の中の文字は台本の場面から渡す（label・sub・points など）。書かなければ文字なし。
+     特定の病気やテーマの文言をここに固定で書かない（local/render.py も同じにする）。 */
   const ILL = {
     question(ctx, s) {
       ctx.lineWidth = 10; ctx.strokeStyle = C.ink;
       rr(ctx, 180, 260, 580, 740, 48); ctx.fillStyle = C.white; ctx.fill(); ctx.stroke();
       rr(ctx, 360, 210, 220, 100, 30); ctx.fillStyle = C.acc; ctx.fill(); ctx.stroke();
-      txt(ctx, s.label || "検査結果", 470, 400, f(700, 64), C.ink);
+      if (s.label) txt(ctx, s.label, 470, 400, f(700, 64), C.ink);
       for (const y of [520, 620, 720]) {
         ctx.strokeStyle = "#BEC6CC"; ctx.lineWidth = 12; ctx.beginPath(); ctx.moveTo(260, y); ctx.lineTo(520, y); ctx.stroke();
         txt(ctx, "✓", 640, y, f(700, 60), C.acc);
       }
-      txt(ctx, s.sub || "異常なし", 470, 880, f(700, 72), C.acc);
+      if (s.sub) txt(ctx, s.sub, 470, 880, f(700, 72), C.acc);
       ctx.beginPath(); ctx.arc(900, 480, 180, 0, Math.PI * 2); ctx.fillStyle = C.acc2; ctx.fill();
       txt(ctx, "？", 900, 490, f(900, 230), C.white);
     },
@@ -63,7 +65,7 @@
       ctx.lineWidth = 10; ctx.strokeStyle = C.ink;
       rr(ctx, 170, 200, 860, 860, 40); ctx.fillStyle = C.white; ctx.fill(); ctx.stroke();
       rr(ctx, 170, 200, 860, 140, 40); ctx.fillStyle = C.acc; ctx.fill(); ctx.fillRect(170, 300, 860, 40);
-      txt(ctx, s.label || "1か月", 600, 270, f(700, 70), C.white);
+      if (s.label) txt(ctx, s.label, 600, 270, f(700, 70), C.white);
       const n = Math.max(0, Math.min(35, parseInt(s.marks || 3, 10)));
       const marked = new Set(); const step = Math.max(1, Math.floor(35 / Math.max(1, n)));
       for (let i = 0; i < n; i++) marked.add((i * step + 8) % 35);
@@ -91,7 +93,7 @@
       ctx.lineWidth = 6; ctx.strokeStyle = C.acc;
       for (let r = 0; r < 2; r++) for (let c = 0; c < 3; c++) { const x = 320 + c * 210, y = 500 + r * 170; rr(ctx, x, y, 140, 110, 14); ctx.fillStyle = C.light; ctx.fill(); ctx.stroke(); }
       rr(ctx, 520, 840, 160, 160, 12); ctx.fillStyle = C.acc2; ctx.fill();
-      txt(ctx, s.label || "専門医に相談", 600, 1090, f(700, 64), C.ink);
+      if (s.label) txt(ctx, s.label, 600, 1090, f(700, 64), C.ink);
     },
     big_number(ctx, s) {
       ctx.beginPath(); ctx.arc(600, 560, 420, 0, Math.PI * 2); ctx.fillStyle = C.light; ctx.fill();
